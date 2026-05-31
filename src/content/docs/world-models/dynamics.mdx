@@ -1,0 +1,208 @@
+---
+title: "Imagination: Dynamics"
+description: The recurrent dynamics model that predicts the next latent — why the prediction must be a multimodal distribution, the mixture-density RNN, and dreaming with temperature.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import DreamRollout from '../../../components/viz/DreamRollout';
+import PyCell from '../../../components/python/PyCell';
+
+The [variational autoencoder](/world-models/perception/) gives the agent a latent
+$z_t$, but no sense of time. The second component supplies it: a **dynamics model**
+that predicts the next latent from the current latent and the action taken. Because
+a single latent is not a [sufficient state](/world-models/the-idea/) under partial
+observability, the model carries a recurrent summary $h_t$ of the entire past,
+
+$$
+h_t = f_\theta\big(h_{t-1},\, z_{t-1},\, a_{t-1}\big),
+$$
+
+realized by an LSTM or GRU. The pair $(z_t, h_t)$ is the state the agent actually
+acts on. The model's task is the conditional distribution of the next latent,
+$p_\theta(z_{t+1} \mid z_t, a_t, h_t)$ — and the form of that distribution is the
+crux of the matter.
+
+## The future is not a point
+
+It is tempting to predict $z_{t+1}$ with a single vector and train it by mean
+squared error. This fails, and the reason is fundamental rather than technical. The
+future is **uncertain**: a corridor may branch left or right, a die may land on any
+face, an object may topple either way. When several outcomes are each valid, the
+MSE-optimal prediction is their **conditional mean** — and the mean of two valid
+futures is, in general, *not a valid future*. Averaging a left turn and a right turn
+yields driving straight into the wall.
+
+A correct dynamics model must therefore represent a genuinely **multimodal**
+distribution over next latents, placing mass on each possible continuation rather
+than smearing it across the invalid average. The visualization below makes the
+failure literal: imagined latent rollouts bifurcate into two modes, and the
+deterministic mean predictor (amber) runs straight down the empty gap between them.
+
+<DreamRollout client:visible />
+
+## The mixture-density network
+
+The instrument for predicting a multimodal target is the **mixture-density network**
+(Bishop, 1994): rather than emit a point, the network emits the parameters of a
+mixture of Gaussians. From the recurrent state $h_t$, a head produces $K$ mixing
+weights, means, and scales,
+
+$$
+p_\theta(z_{t+1} \mid z_t, a_t, h_t) = \sum_{k=1}^{K} \pi_k(h_t)\,
+\mathcal{N}\!\big(z_{t+1};\, \mu_k(h_t),\, \sigma_k^2(h_t)\,I\big),
+\qquad
+\sum_k \pi_k = 1,
+$$
+
+with the weights $\pi_k$ produced by a softmax and the scales $\sigma_k$ by an
+exponential, so both obey their constraints. The composite — a recurrent network
+feeding a mixture-density head — is the **MDN-RNN**, the memory module $M$ of the
+original World Models. It is trained not by MSE but by the **negative
+log-likelihood** of the realized next latent,
+
+$$
+\mathcal{L}(\theta) = -\sum_t \log \sum_{k=1}^{K} \pi_k(h_t)\,
+\mathcal{N}\!\big(z_{t+1};\, \mu_k(h_t),\, \sigma_k^2(h_t)\big),
+$$
+
+which rewards placing a mode wherever an outcome actually occurs and is indifferent
+to the gaps between modes.
+
+<Aside type="note" title="Responsibilities">
+	The NLL gradient is governed by the posterior **responsibility** of each
+	component, $\gamma_k = \pi_k \mathcal{N}_k / \sum_j \pi_j \mathcal{N}_j$ — the
+	probability that component $k$ generated the observed target. The mean of
+	component $k$ is pulled toward the target in proportion to $\gamma_k$, so each
+	mode is drawn only toward the outcomes it is already responsible for, and the
+	components specialize onto distinct branches rather than all collapsing to the
+	mean. This is an EM-like division of labour, learned by gradient descent.
+</Aside>
+
+## Dreaming, with temperature
+
+Once trained, the MDN-RNN *is* the world: feeding a sampled $z_{t+1}$ back in as the
+next input generates a trajectory entirely in imagination — a **dream**. The fidelity
+of the dream is governed by a single scalar, the **temperature** $\tau$, which
+rescales the model's uncertainty at sampling time:
+
+$$
+\sigma_k \;\longmapsto\; \tau\,\sigma_k, \qquad
+\pi_k \;\propto\; \pi_k^{1/\tau}.
+$$
+
+At $\tau \to 0$ the dream is nearly deterministic, following the single most likely
+continuation; at $\tau = 1$ it samples faithfully from the learned distribution; at
+$\tau > 1$ it grows more varied and chaotic. Ha and Schmidhuber observed something
+counterintuitive: training the controller in a dream made *more* uncertain than
+reality — a higher $\tau$ — yields policies that transfer **better** to the real
+environment. A harder, noisier dream is a regularizer; a policy that survives it is
+robust to the places where the model is wrong, and so does not exploit the model's
+fantasies.
+
+## A mixture-density network, from scratch
+
+The cell below fits an MDN to the canonical one-to-many problem. The forward map
+$x = t + 0.3\sin(2\pi t)$ is non-monotone, so its inverse has up to **three** valid
+branches over the central range — exactly the multimodal target that defeats MSE. The
+MDN learns all three branches; an MSE network of identical size, trained alongside,
+learns the single curve threading their average, which passes through regions the
+data never occupies.
+
+<PyCell
+	client:only="react"
+	id="wm-mdn"
+	title="mdn.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+np.seterr(divide="ignore", over="ignore", invalid="ignore")
+rng = np.random.default_rng(0)
+
+# A one-to-many target: x = t + 0.3 sin(2 pi t) is non-monotone, so the inverse
+# t(x) has up to three valid branches. MSE cannot represent that; a mixture can.
+n = 1000
+t = rng.uniform(0, 1, (n, 1))
+x = t + 0.3 * np.sin(2 * np.pi * t) + 0.05 * rng.standard_normal((n, 1))
+
+Hd, K = 24, 3                                    # hidden width, mixture components
+def init(a, b): return rng.standard_normal((a, b)) * np.sqrt(2.0 / a)
+def softmax(a):
+    a = a - a.max(1, keepdims=True); e = np.exp(a); return e / e.sum(1, keepdims=True)
+
+P = dict(W1=init(1, Hd), b1=np.zeros(Hd), Wa=init(Hd, K) * 0.1, ba=np.zeros(K),
+         Wm=init(Hd, K), bm=np.zeros(K), Ws=init(Hd, K) * 0.1, bs=np.zeros(K))
+m = {k: np.zeros_like(v) for k, v in P.items()}
+v = {k: np.zeros_like(v) for k, v in P.items()}
+
+for it in range(4000):
+    h = np.tanh(x @ P["W1"] + P["b1"])
+    pi = softmax(h @ P["Wa"] + P["ba"])          # mixture weights
+    mu = h @ P["Wm"] + P["bm"]                    # component means
+    sig = np.exp(np.clip(h @ P["Ws"] + P["bs"], -6, 4))   # component scales
+    Nk = np.exp(-0.5 * ((t - mu) / sig) ** 2) / (sig * np.sqrt(2 * np.pi))
+    p = (pi * Nk).sum(1, keepdims=True) + 1e-12
+    nll = -np.mean(np.log(p))
+    gamma = pi * Nk / p                           # responsibilities
+    da = (pi - gamma) / n                         # MDN output gradients (Bishop)
+    dmu = gamma * (mu - t) / sig ** 2 / n
+    ds = gamma * (1 - ((t - mu) / sig) ** 2) / n
+    g = {"Wa": h.T @ da, "ba": da.sum(0), "Wm": h.T @ dmu, "bm": dmu.sum(0),
+         "Ws": h.T @ ds, "bs": ds.sum(0)}
+    dh = (da @ P["Wa"].T + dmu @ P["Wm"].T + ds @ P["Ws"].T) * (1 - h ** 2)
+    g["W1"] = x.T @ dh; g["b1"] = dh.sum(0)
+    for k in P:
+        m[k] = 0.9 * m[k] + 0.1 * g[k]; v[k] = 0.999 * v[k] + 0.001 * g[k] ** 2
+        P[k] -= 3e-3 * (m[k] / (1 - 0.9 ** (it + 1))) / (np.sqrt(v[k] / (1 - 0.999 ** (it + 1))) + 1e-8)
+
+# An MSE network of identical size, for comparison.
+Q = dict(W1=init(1, Hd), b1=np.zeros(Hd), W2=init(Hd, 1), b2=np.zeros(1))
+mq = {k: np.zeros_like(v) for k, v in Q.items()}
+vq = {k: np.zeros_like(v) for k, v in Q.items()}
+for it in range(4000):
+    h = np.tanh(x @ Q["W1"] + Q["b1"]); yh = h @ Q["W2"] + Q["b2"]
+    dyh = 2 * (yh - t) / n
+    g = {"W2": h.T @ dyh, "b2": dyh.sum(0)}
+    dh = (dyh @ Q["W2"].T) * (1 - h ** 2)
+    g["W1"] = x.T @ dh; g["b1"] = dh.sum(0)
+    for k in Q:
+        mq[k] = 0.9 * mq[k] + 0.1 * g[k]; vq[k] = 0.999 * vq[k] + 0.001 * g[k] ** 2
+        Q[k] -= 3e-3 * (mq[k] / (1 - 0.9 ** (it + 1))) / (np.sqrt(vq[k] / (1 - 0.999 ** (it + 1))) + 1e-8)
+
+print(f"MDN negative log-likelihood: {nll:.3f}")
+hc = np.tanh(np.array([[0.5]]) @ P["W1"] + P["b1"])
+print("at x=0.5  mixture means", np.round((hc @ P["Wm"] + P["bm"])[0], 2),
+      " weights", np.round(softmax(hc @ P["Wa"] + P["ba"])[0], 2), " (three branches)")
+
+# Sample t ~ p(t|x) from the trained mixture across the input range.
+xs = np.linspace(x.min(), x.max(), 1200).reshape(-1, 1)
+h = np.tanh(xs @ P["W1"] + P["b1"])
+pis = softmax(h @ P["Wa"] + P["ba"]); mus = h @ P["Wm"] + P["bm"]
+sigs = np.exp(np.clip(h @ P["Ws"] + P["bs"], -6, 4))
+comp = (rng.random((len(xs), 1)) < np.cumsum(pis, 1)).argmax(1)
+idx = np.arange(len(xs))
+ts = mus[idx, comp] + sigs[idx, comp] * rng.standard_normal(len(xs))
+mse_pred = np.tanh(xs @ Q["W1"] + Q["b1"]) @ Q["W2"] + Q["b2"]
+
+fig, ax = plt.subplots(figsize=(6, 3.4))
+ax.scatter(x, t, s=5, c="#888888", alpha=0.4, label="data (one-to-many)")
+ax.scatter(xs, ts, s=5, c="#2dd4bf", alpha=0.5, label="MDN samples")
+ax.plot(xs, mse_pred, c="#fb923c", lw=2.5, label="MSE net = conditional mean")
+ax.set_xlabel("x"); ax.set_ylabel("t"); ax.legend(fontsize=8, loc="upper left")
+ax.set_title("the mixture finds the branches; the mean falls between them")
+fig.tight_layout()
+`}
+/>
+
+This pairing — a VAE for perception and an MDN-RNN for dynamics — is the complete
+World Models architecture, and it is enough to train a controller in a dream. It has
+one structural limitation: the VAE is trained *first and separately*, optimizing for
+reconstruction alone, with no pressure to produce a latent that is easy to *predict*.
+The next page removes that separation. PlaNet's **recurrent state-space model** learns
+representation and dynamics together, in a single latent that is at once deterministic
+and stochastic, and plans within it.
+
+## References
+
+- Bishop (1994). *Mixture Density Networks*. Aston University Technical Report NCRG/94/004. [pdf](https://publications.aston.ac.uk/id/eprint/373/1/NCRG_94_004.pdf)
+- Ha & Schmidhuber (2018). *World Models* (the MDN-RNN memory module). NeurIPS 2018. [arXiv:1803.10122](https://arxiv.org/abs/1803.10122)
+- Hochreiter & Schmidhuber (1997). *Long Short-Term Memory*. Neural Computation. [doi:10.1162/neco.1997.9.8.1735](https://doi.org/10.1162/neco.1997.9.8.1735)
+- Cho et al. (2014). *Learning Phrase Representations using RNN Encoder-Decoder for Statistical Machine Translation* (GRU). EMNLP 2014. [arXiv:1406.1078](https://arxiv.org/abs/1406.1078)

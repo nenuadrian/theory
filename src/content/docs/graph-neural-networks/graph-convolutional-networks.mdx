@@ -1,0 +1,209 @@
+---
+title: Graph Convolutional Networks
+description: From message passing to the GCN — the graph Laplacian, the Fourier view, the renormalization trick, and a two-layer network trained from scratch on a community graph.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import SpectralModes from '../../../components/viz/SpectralModes';
+import PyCell from '../../../components/python/PyCell';
+
+The message-passing layer to be learned takes the form
+
+$$
+H^{(l+1)} = \sigma\!\big( \hat{A}\, H^{(l)} W^{(l)} \big),
+$$
+
+comprising a neighbour-mixing matrix $\hat{A}$, a learnable projection $W^{(l)}$,
+and a nonlinearity $\sigma$. The central question is: **what should $\hat{A}$
+be?** The answer that gave rise to modern GNNs originates in Fourier analysis on
+graphs.
+
+## The graph Laplacian
+
+Define the **Laplacian** $L = D - A$ and its symmetric normalization
+
+$$
+L_{\mathrm{sym}} = I - D^{-1/2} A D^{-1/2}.
+$$
+
+$L$ is the discrete analogue of $-\nabla^2$: the quadratic form
+$\mathbf{x}^\top L\,\mathbf{x} = \tfrac12 \sum_{i\sim j}(x_i - x_j)^2$ measures the
+degree to which a signal **disagrees across edges**. It is symmetric and positive
+semidefinite, and therefore possesses an orthonormal eigenbasis,
+
+$$
+L_{\mathrm{sym}} = U \Lambda U^\top, \qquad 0 = \lambda_0 \le \lambda_1 \le \dots \le \lambda_{N-1} \le 2.
+$$
+
+These eigenvectors are the graph's **Fourier modes**. A small $\lambda$ indicates a
+*smooth* mode (neighbours agree — the nearly constant mode at $\lambda_0=0$); a
+large $\lambda$ indicates an *oscillatory* mode (neighbours disagree). The
+visualization below traverses the spectrum: on a ring the modes are sines and
+cosines, recovering the classical Fourier basis; on a two-community graph the first
+non-trivial mode ($\lambda_1$, the **Fiedler vector**) separates the two
+communities by sign.
+
+<SpectralModes client:visible />
+
+<Aside type="note" title="Why this is the Fourier transform">
+	On a ring graph, $L$ is a circulant matrix, and circulant matrices are
+	diagonalized by the discrete Fourier basis. The graph Fourier transform
+	$\hat{\mathbf{x}} = U^\top \mathbf{x}$ is therefore a genuine generalization of
+	the classical one — the same construction, applied to an arbitrary graph rather
+	than a regular cycle.
+</Aside>
+
+## From spectral filters to the GCN
+
+A **spectral convolution** filters a signal in this basis: transform the signal,
+scale each frequency by a learned filter $g_\theta$, then transform back.
+
+$$
+g_\theta \star \mathbf{x} = U\, g_\theta(\Lambda)\, U^\top \mathbf{x}.
+$$
+
+This formulation is exact but impractical: computing $U$ costs $\mathcal{O}(N^3)$,
+and the filter is **global** — it acts on every node simultaneously, disregarding
+locality. The remedy (*ChebNet*) is to make $g_\theta$ a degree-$K$ **polynomial**
+of $\Lambda$. A polynomial of the Laplacian is $K$-localized, since $L^k$ reaches
+only $k$ hops, so $U$ is never required; the computation reduces to sparse
+multiplications by $L$, at $\mathcal{O}(|E|)$ cost.
+
+The **GCN** of Kipf & Welling adopts the most aggressive simplification: retain only
+$K=1$, approximate $\lambda_{\max}\approx 2$, and tie the two coefficients into a
+single one. This collapses to $\big(I + D^{-1/2}AD^{-1/2}\big)\mathbf{x}$. Its
+eigenvalues lie in $[0,2]$, and stacking such operators would amplify or shrink
+signals; consequently a **renormalization trick** is applied — self-loops are added
+*first*, then the result is normalized:
+
+$$
+\hat{A} = \tilde{D}^{-1/2}\,\tilde{A}\,\tilde{D}^{-1/2},
+\qquad \tilde{A} = A + I, \qquad \tilde{D}_{ii} = \textstyle\sum_j \tilde{A}_{ij}.
+$$
+
+This constitutes the entire layer. Interpreted as message passing, it states that
+*each node takes a degree-weighted average of itself and its neighbours, then
+applies a shared linear map and a nonlinearity.* The spectral derivation
+establishes **which** average is principled.
+
+<Aside type="tip" title="The aggregator, explained">
+	The $\tfrac{1}{\sqrt{\tilde d_i \tilde d_j}}$ weight in $\hat{A}$ is a symmetric
+	normalization: a high-degree neighbour contributes *less*, which prevents a
+	popular node from dominating the others. This is the GCN's specific, principled
+	answer to the question of which aggregator to use, raised on the [previous page](/graph-neural-networks/graphs-and-message-passing/).
+</Aside>
+
+## Train one from scratch
+
+The construction is made concrete below. The example is a complete two-layer GCN —
+$\hat{A}\,\mathrm{ReLU}(\hat{A} X W_1)\,W_2$ — trained on a **two-community graph**
+in the classic *semi-supervised* setting, in which only a small number of labels
+per community are revealed and the structure carries the remainder. The forward
+pass, the backpropagation derived by hand, and gradient descent are implemented
+entirely in NumPy:
+
+<PyCell
+	client:only="react"
+	id="gnn-gcn-train"
+	title="train_gcn.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+rng = np.random.default_rng(1)
+
+# --- a 2-community graph (stochastic block model) --------------------------
+n_per = 20
+N = 2 * n_per
+y = np.r_[np.zeros(n_per), np.ones(n_per)].astype(int)
+P = np.where(y[:, None] == y[None, :], 0.35, 0.03)   # dense within, sparse across
+A = (rng.random((N, N)) < P).astype(float)
+A = np.triu(A, 1); A = A + A.T                        # symmetric, no self-loops
+
+# --- renormalized propagation  A_hat = D~^-1/2 (A+I) D~^-1/2 ----------------
+A_tilde = A + np.eye(N)
+d = A_tilde.sum(1)
+A_hat = A_tilde / np.sqrt(d[:, None]) / np.sqrt(d[None, :])
+
+X = np.eye(N)                       # featureless: one-hot node identities
+labeled = np.array([0, 1, N - 2, N - 1])   # 2 revealed labels per community
+Y = np.zeros((N, 2)); Y[np.arange(N), y] = 1
+
+relu = lambda z: np.maximum(0, z)
+def softmax(z):
+    z = z - z.max(1, keepdims=True)
+    e = np.exp(z); return e / e.sum(1, keepdims=True)
+
+h = 16
+W1 = rng.normal(0, 0.4, (N, h))
+W2 = rng.normal(0, 0.4, (h, 2))
+AX = A_hat @ X                      # precompute (A_hat is symmetric)
+
+lr = 0.08
+for epoch in range(401):
+    Z1 = AX @ W1; H1 = relu(Z1)
+    M1 = A_hat @ H1
+    Z2 = M1 @ W2; Pr = softmax(Z2)
+    # cross-entropy on the labeled nodes only
+    loss = -np.log(Pr[labeled, y[labeled]] + 1e-9).mean()
+    # backward (chain rule, by hand)
+    dZ2 = Pr - Y
+    mask = np.zeros((N, 1)); mask[labeled] = 1
+    dZ2 = dZ2 * mask / len(labeled)
+    dW2 = M1.T @ dZ2
+    dH1 = A_hat @ (dZ2 @ W2.T)
+    dZ1 = dH1 * (Z1 > 0)
+    dW1 = AX.T @ dZ1
+    W1 -= lr * dW1; W2 -= lr * dW2
+    if epoch % 80 == 0:
+        acc = (Pr.argmax(1) == y).mean()
+        print(f"epoch {epoch:3d}   loss {loss:.3f}   accuracy {acc:.0%}")
+
+pred = Pr.argmax(1)
+print(f"final: {(pred == y).mean():.0%} of ALL nodes correct, from {len(labeled)} labels")
+
+# --- plot: the graph coloured by prediction, and the 2-D logit space -------
+pos = rng.normal(0, 1, (N, 2))
+for _ in range(250):
+    diff = pos[:, None, :] - pos[None, :, :]
+    dist = np.hypot(diff[..., 0], diff[..., 1]) + 1e-3
+    disp = (diff / dist[..., None] ** 2).sum(1) * 0.05
+    for i in range(N):
+        for j in np.where(A[i] > 0)[0]:
+            disp[i] -= (pos[i] - pos[j]) * 0.02
+    pos += np.clip(disp, -0.1, 0.1)
+pos -= pos.mean(0)
+
+fig, (axg, axl) = plt.subplots(1, 2, figsize=(8.4, 3.6))
+ii, jj = np.where(np.triu(A) > 0)
+for a, b in zip(ii, jj):
+    axg.plot(pos[[a, b], 0], pos[[a, b], 1], color="0.6", lw=0.4, zorder=1)
+axg.scatter(pos[:, 0], pos[:, 1], c=pred, cmap="coolwarm", s=70, edgecolor="k", lw=0.5, zorder=2)
+axg.scatter(pos[labeled, 0], pos[labeled, 1], s=210, facecolors="none", edgecolors="k", lw=2, zorder=3)
+axg.set_title("graph, coloured by GCN prediction"); axg.set_xticks([]); axg.set_yticks([])
+axl.scatter(Z2[:, 0], Z2[:, 1], c=y, cmap="coolwarm", s=40, edgecolor="k", lw=0.4)
+axl.set_title("output logits (true labels)"); axl.set_xlabel("class-0"); axl.set_ylabel("class-1"); axl.grid(alpha=0.3)
+fig.tight_layout()
+`}
+/>
+
+<Aside type="note" title="What occurred">
+	Two layers of $\hat{A}$ allow each labelled node's signal to reach two hops out;
+	the symmetric normalization keeps it well-scaled; and gradient descent on four
+	labels suffices to colour the entire graph. The circled nodes are the only ones
+	the network was given. Reducing `labeled` to one node per community, or raising
+	the inter-community probability `0.03` toward `0.35`, causes the communities to
+	blur and the accuracy to fall.
+</Aside>
+
+The GCN's aggregator is **fixed**: the $\tfrac{1}{\sqrt{\tilde d_i \tilde d_j}}$
+weights depend only on degrees, never on the features. The
+[next page](/graph-neural-networks/graph-attention/) considers a further question:
+what if the edges could determine their own weights from the content of the
+nodes?
+
+## References
+
+- Bruna et al. (2014). *Spectral Networks and Locally Connected Networks on Graphs* (spectral graph convolution). ICLR 2014. [arXiv:1312.6203](https://arxiv.org/abs/1312.6203)
+- Defferrard et al. (2016). *Convolutional Neural Networks on Graphs with Fast Localized Spectral Filtering* (ChebNet). NeurIPS 2016. [arXiv:1606.09375](https://arxiv.org/abs/1606.09375)
+- Kipf & Welling (2017). *Semi-Supervised Classification with Graph Convolutional Networks* (GCN; the renormalization trick). ICLR 2017. [arXiv:1609.02907](https://arxiv.org/abs/1609.02907)
+- Shuman et al. (2013). *The Emerging Field of Signal Processing on Graphs*. IEEE Signal Processing Magazine. [arXiv:1211.0053](https://arxiv.org/abs/1211.0053)
+- Fiedler (1973). *Algebraic connectivity of graphs* (the Fiedler vector). Czechoslovak Mathematical Journal. [doi:10.21136/CMJ.1973.101168](https://doi.org/10.21136/CMJ.1973.101168)

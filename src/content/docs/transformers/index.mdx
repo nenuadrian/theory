@@ -1,0 +1,66 @@
+---
+title: Transformers
+description: A from-scratch construction of the architecture behind modern language models — attention, multi-head attention, positional encoding, and the residual block — with interactive visuals and runnable NumPy.
+---
+
+import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+
+The [neural-network track](/neural-networks/the-neuron/) constructed a model that maps a
+fixed vector to an output. Language, audio, and code, however, are **sequences**, and
+their meaning resides in *how the pieces relate*. The **transformer** is the
+architecture that made the modeling of those relationships scalable, and it now underpins
+nearly every large language model.
+
+Its central idea is **attention**: each position is permitted to consult every other position
+and to draw in whatever is relevant. There is no recurrence and no convolution — only a learned,
+content-based lookup, applied in parallel across the entire sequence.
+
+## The path
+
+<CardGrid>
+	<Card title="01 · Tokens & Embeddings" icon="seti:default">
+		[From text to vectors.](/transformers/tokens-and-embeddings/) The lookup table
+		that converts symbols into a residual stream.
+	</Card>
+	<Card title="02 · Attention" icon="seti:default">
+		[Queries, keys, and values.](/transformers/attention/) Scaled dot-product
+		attention — the central operation of the architecture.
+	</Card>
+	<Card title="03 · Multi-Head Attention" icon="seti:default">
+		[Many lookups at once.](/transformers/multi-head-attention/) Why heads
+		specialize, and how they are recombined.
+	</Card>
+	<Card title="04 · Positional Encoding" icon="seti:default">
+		[Restoring order.](/transformers/positional-encoding/) Attention is
+		blind to position until position is supplied explicitly.
+	</Card>
+	<Card title="05 · Rotary Position Encoding" icon="seti:default">
+		[Order by rotation.](/transformers/rotary-position-encoding/) RoPE turns $Q$ and $K$
+		so relative position emerges inside the dot product.
+	</Card>
+	<Card title="06 · The Transformer Block" icon="seti:default">
+		[Assembling the components.](/transformers/transformer-block/) Residual stream,
+		LayerNorm, and the feed-forward network.
+	</Card>
+</CardGrid>
+
+## What this track builds
+
+By its conclusion the reader will have assembled a complete **pre-LN transformer block** — multi-head
+self-attention, a feed-forward network, residual connections, and layer
+normalization — written from scratch in NumPy and stacked into a deep network,
+with the shape of the residual stream preserved end to end.
+
+<Aside type="note">
+	Prerequisites: the [neural-network track](/neural-networks/the-neuron/), or
+	familiarity with matrices, the [softmax](/neural-networks/forward-pass/), and
+	backpropagation. Attention reduces to matrix multiplications and a softmax, so
+	the development relies on material the reader already commands.
+</Aside>
+
+## References
+
+- Vaswani et al. (2017). *Attention Is All You Need*. NeurIPS 2017. [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)
+- He et al. (2016). *Deep Residual Learning for Image Recognition* (residual connections / ResNet). CVPR 2016. [arXiv:1512.03385](https://arxiv.org/abs/1512.03385)
+- Ba, Kiros & Hinton (2016). *Layer Normalization*. [arXiv:1607.06450](https://arxiv.org/abs/1607.06450)
+- Xiong et al. (2020). *On Layer Normalization in the Transformer Architecture* (the pre-LN block). ICML 2020. [arXiv:2002.04745](https://arxiv.org/abs/2002.04745)

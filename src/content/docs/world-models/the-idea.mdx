@@ -1,0 +1,168 @@
+---
+title: The Idea
+description: Partial observability, the world-model triple, model-based versus model-free learning, and the central obstacle that organizes the entire field — error that compounds over a rollout.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import CompoundingError from '../../../components/viz/CompoundingError';
+import PyCell from '../../../components/python/PyCell';
+
+An agent rarely observes the state of its world. A camera returns pixels, not the
+positions and velocities that govern what happens next; a dialogue exposes words,
+not the intent behind them. The true state $s_t$ is hidden, and the agent receives
+only an **observation** $o_t$ that depends on it. This is a **partially observed
+Markov decision process** (POMDP): the tuple of the
+[MDP](/reinforcement-learning/the-setup/) augmented with an observation space and
+an emission distribution $p(o_t \mid s_t)$.
+
+Partial observability has an immediate consequence. A single frame is not a state:
+a photograph of a thrown ball does not reveal its velocity. To act well the agent
+must *aggregate* its history $o_{\le t}$ into a quantity that is, once again, a
+sufficient summary of the past. Constructing that summary — and predicting how it
+evolves — is precisely the task of a world model.
+
+## The model, in three parts
+
+A world model is a learned, generative account of the agent's sensorimotor stream.
+It is built from three learnable pieces, each a conditional distribution:
+
+$$
+\underbrace{z_t \sim q_\phi(z_t \mid o_{\le t})}_{\text{representation}}
+\qquad
+\underbrace{z_{t+1} \sim p_\theta(z_{t+1} \mid z_t, a_t)}_{\text{transition}}
+\qquad
+\underbrace{o_t \sim p_\theta(o_t \mid z_t)}_{\text{decoder}}
+$$
+
+The **representation** compresses the observed history into a compact latent state
+$z_t$. The **transition** — the heart of the model — predicts the next latent from
+the current latent and the chosen action, *without consulting the environment*.
+The **decoder** maps a latent back to an observation, which is what permits the
+model to be trained by reconstruction. To these one adds two small heads that the
+agent cannot do without: a **reward** predictor $\hat r_\theta(z_t)$ and a
+**discount** or termination predictor $\hat\gamma_\theta(z_t)$, so that imagined
+trajectories carry the very quantities the [return](/reinforcement-learning/the-setup/)
+is built from.
+
+<Aside type="note" title="Latent, not pixel">
+	The transition operates on $z_t$, never on $o_t$. Predicting the next $32\times 32$
+	frame pixel-by-pixel is both wasteful and ill-posed; predicting the next
+	thirty-dimensional latent is neither. Compressing first, then predicting in the
+	compressed space, is the structural decision that makes the whole enterprise
+	tractable — and it is the subject of the next two pages.
+</Aside>
+
+## Model-based versus model-free
+
+The distinction that names the field is one of *what is learned*. A **model-free**
+agent learns a policy or value function directly from experience and stores no
+representation of the environment's dynamics. A **model-based** agent learns the
+dynamics and derives its behaviour from them — by planning, by training a policy in
+simulation, or both.
+
+The trade is sharp. A model is a lever on **sample efficiency**: once the dynamics
+are captured, the agent may generate unlimited synthetic experience and need not
+pay the environment for each gradient step — decisive when real interaction is
+slow, costly, or dangerous. But the model is itself estimated, and the agent
+optimizes against *its* predictions. Wherever the model is wrong, the agent will
+discover and exploit that error, pursuing returns that exist only in the model.
+This is **model bias**, and it is the price of the lever.
+
+## The obstacle: error compounds
+
+Model bias is not a fixed tax; it accumulates. The agent does not query the model
+once — it rolls the model forward, feeding each prediction back as the input to the
+next. A one-step error $\varepsilon$ is therefore mapped through the dynamics again
+and again. If the dynamics have Lipschitz constant $L$, the error after $H$ steps
+is bounded by
+
+$$
+\lVert \hat x_H - x_H \rVert \;\lesssim\; \varepsilon \,\frac{L^{H}-1}{L-1},
+$$
+
+which is linear in the horizon when $L \approx 1$ and **exponential** when $L > 1$.
+The visualization below makes the exponential case concrete on the Hénon map, a
+deterministic but chaotic system. The model is the true map plus a per-step error
+$\varepsilon$; both are rolled forward from the same start. Reduce $\varepsilon$ by
+a factor of ten and observe how little horizon it buys.
+
+<CompoundingError client:visible />
+
+The lesson is structural, not numerical. On sensitive dynamics no *attainable*
+per-step accuracy defeats compounding on its own, because the horizon enters the
+exponent while accuracy enters only the base. The entire history of world models
+can be read as three strategies for living with this fact:
+
+- **Predict in a compact latent.** A low-dimensional, learned state space is far
+  easier to predict accurately than raw pixels, and a smoother space has a smaller
+  effective $L$. This is the [VAE](/world-models/perception/) and the
+  [RSSM](/world-models/rssm-and-planning/).
+- **Predict only what matters.** If the agent needs the *value* of a state but not
+  its appearance, train the model to get value right and let the pixels go. This is
+  the [value-equivalent model](/world-models/value-equivalence/) of MuZero, and the
+  representation-space prediction of JEPA.
+- **Keep the horizon short, then bootstrap.** Roll the model out only a few steps
+  and cap the imagined return with a learned value function, so the unbounded tail
+  of compounding error is never incurred. This is [Dreamer](/world-models/dreamer/).
+
+## Quantifying the compounding
+
+The experiment below reproduces the figure analytically. It rolls a perturbed model
+against the true Hénon map for three values of $\varepsilon$ and records the step at
+which the two trajectories diverge beyond recognition. Each tenfold improvement in
+the one-step model shifts that horizon by only a constant.
+
+<PyCell
+	client:only="react"
+	id="wm-compounding-error"
+	title="compounding_error.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+# The environment: the Henon map, a deterministic but chaotic 2-D system.
+a, b = 1.4, 0.3
+def step(s):
+    x, y = s
+    return np.array([1.0 - a * x * x + y, b * x])
+
+H = 55
+x0 = np.array([0.1, 0.1])
+
+fig, ax = plt.subplots(figsize=(6, 3.4))
+for eps in [1e-2, 1e-3, 1e-4]:
+    rng = np.random.default_rng(0)            # identical perturbation stream
+    true = x0.copy()
+    model = x0.copy()
+    divs = []
+    for t in range(H):
+        true = step(true)
+        model = step(model) + eps * rng.standard_normal(2)   # tiny model error
+        divs.append(np.linalg.norm(true - model))
+    divs = np.array(divs)
+    broke = int(np.argmax(divs > 0.5)) if (divs > 0.5).any() else -1
+    ax.semilogy(range(1, H + 1), divs, label=f"eps={eps:.0e}  breaks @ step {broke}")
+    print(f"eps={eps:.0e}:  gap at step 10 = {divs[9]:.2e},  exceeds 0.5 at step {broke}")
+
+print()
+print("A 10x more accurate one-step model buys only a roughly CONSTANT number")
+print("of extra steps. Error enters the base; the horizon enters the exponent.")
+
+ax.axhline(0.5, ls="--", c="crimson", lw=1, label="indistinguishable")
+ax.set_xlabel("rollout step"); ax.set_ylabel("|| model - reality ||")
+ax.set_title("one-step error compounds over a rollout")
+ax.legend(fontsize=8); fig.tight_layout()
+`}
+/>
+
+With the obstacle understood, the constructive work can begin. The first piece is
+**perception**: the map from a high-dimensional observation to the compact,
+well-behaved latent in which everything subsequent takes place. That is the
+[variational autoencoder](/world-models/perception/).
+
+## References
+
+- Ha & Schmidhuber (2018). *World Models*. NeurIPS 2018. [arXiv:1803.10122](https://arxiv.org/abs/1803.10122)
+- Hafner et al. (2019). *Learning Latent Dynamics for Planning from Pixels* (PlaNet / RSSM). ICML 2019. [arXiv:1811.04551](https://arxiv.org/abs/1811.04551)
+- Schrittwieser et al. (2020). *Mastering Atari, Go, Chess and Shogi by Planning with a Learned Model* (MuZero; the value-equivalent model). Nature. [arXiv:1911.08265](https://arxiv.org/abs/1911.08265)
+- LeCun (2022). *A Path Towards Autonomous Machine Intelligence* (JEPA). [OpenReview](https://openreview.net/forum?id=BZ5a1r-kVsf)
+- Hénon (1976). *A two-dimensional mapping with a strange attractor*. Communications in Mathematical Physics. [doi:10.1007/BF01608556](https://doi.org/10.1007/BF01608556)

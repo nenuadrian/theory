@@ -1,0 +1,173 @@
+---
+title: Graphs & Message Passing
+description: The data structure, the symmetry that constrains every architecture, and the single idea of aggregating over neighbours and repeating that underlies every GNN.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import MessagePassing from '../../../components/viz/MessagePassing';
+import PyCell from '../../../components/python/PyCell';
+
+## The data
+
+A graph is a set of $N$ **nodes** $V$ together with a set of **edges** $E$ joining
+them. It is specified by three objects:
+
+$$
+A \in \{0,1\}^{N \times N}, \qquad
+D = \operatorname{diag}\!\Big(\textstyle\sum_j A_{ij}\Big), \qquad
+X \in \mathbb{R}^{N \times F}.
+$$
+
+The **adjacency matrix** $A$ records which nodes are connected ($A_{ij}=1$ when an
+edge $i\!\sim\!j$ is present); the **degree matrix** $D$ is diagonal and counts each
+node's neighbours; and the **feature matrix** $X$ assigns every node a row of $F$
+features — an atom's element, a user's profile, a word's embedding. Edges may also
+carry features, but the present discussion proceeds without them.
+
+What distinguishes this from a grid is that there is **no canonical order** on the
+nodes. A $3\times 3$ image always has a top-left pixel, whereas a molecule has no
+distinguished "first" atom. This single fact dictates the entire architecture.
+
+## The symmetry that constrains everything
+
+Consider relabelling the nodes with a permutation matrix $P$. The features are
+reordered to $PX$ and the adjacency to $PAP^\top$, yet this is the *same graph*,
+merely with the atoms numbered differently. Any function computed on the graph must
+therefore respect this relabelling.
+
+A **node-level** function (one output per node) must be **permutation
+equivariant**: relabelling the input returns the outputs in the same new order,
+
+$$
+f(PX,\, PAP^\top) = P\, f(X, A).
+$$
+
+A **graph-level** function (one output for the whole graph) must be **permutation
+invariant**: relabelling changes nothing,
+
+$$
+f(PX,\, PAP^\top) = f(X, A).
+$$
+
+This explains why one cannot flatten $A$ and $X$ and feed them to an MLP: the MLP
+would treat node ordering as meaningful and would need to observe all $N!$
+orderings to learn that it is not. GNNs instead *build the symmetry in* — a single
+shared function applied at every node, combined with a neighbour aggregation that
+is insensitive to order.
+
+<Aside type="note" title="The same principle as a CNN">
+	A convolution is the architecture obtained by demanding **translation** symmetry
+	on a grid: one shared kernel, applied at every position. A GNN is the
+	architecture obtained by demanding **permutation** symmetry on a graph: one
+	shared update, applied at every node. The principle is the same — encode the
+	symmetry of the data into the weights — though the symmetry group differs.
+</Aside>
+
+## Message passing
+
+The entire field can be expressed in two lines. At each layer $k$, every node
+constructs a **message** by aggregating its neighbours' current vectors, then
+**updates** itself from that message:
+
+$$
+\mathbf{m}_i^{(k)} = \operatorname{AGG}\Big(\big\{\, \mathbf{h}_j^{(k-1)} : j \in \mathcal{N}(i) \,\big\}\Big),
+\qquad
+\mathbf{h}_i^{(k)} = \operatorname{UPD}\Big(\mathbf{h}_i^{(k-1)},\, \mathbf{m}_i^{(k)}\Big),
+$$
+
+starting from $\mathbf{h}_i^{(0)} = \mathbf{x}_i$. The aggregator operates over a
+**set** of neighbours, so it must be permutation invariant; sum, mean, and max all
+satisfy this requirement, whereas "the first neighbour" does not. This single
+requirement is what renders the whole network equivariant by construction.
+
+Two consequences are worth noting:
+
+- **The receptive field grows with depth.** After $k$ layers, $\mathbf{h}_i$
+  depends on every node within $k$ hops of $i$. One layer sees the immediate
+  neighbours; two layers see neighbours-of-neighbours; and so on. Depth on a graph
+  buys *reach*, exactly as stacking convolutions grows a CNN's receptive field.
+- **Most of the network is fixed.** Removing the learnable update leaves a
+  propagation rule — a sparse matrix multiplication against the adjacency. The
+  learning resides in $\operatorname{UPD}$; the *structure* of the computation is
+  the graph itself.
+
+### Propagation, visualized
+
+In the visualization below, selecting a node drops a unit signal on it, and
+pressing **step** runs one round of aggregation. The teal rings mark the $k$-hop
+neighbourhood — the receptive field — growing by one ring per layer. Switching the
+aggregator illustrates how `mean`, `sum`, and `max` spread information differently:
+
+<MessagePassing client:visible />
+
+Observe that with `mean` the signal *conserves and diffuses* (it is a random walk
+over the graph), whereas `sum` allows the magnitude to grow with degree, and `max`
+floods outward as a reachability test. The choice of aggregator is a genuine
+modelling decision; the [next page](/graph-neural-networks/graph-convolutional-networks/)
+shows that the GCN adopts a specific, principled one.
+
+## In code
+
+Reduced to its essentials, message passing is a single matrix multiplication per
+layer. The example below uses **mean-with-self** aggregation, which is precisely
+one step of the random-walk operator $\hat{A}_{\mathrm{rw}} = (A+I)\,D^{-1}$, and
+traces a signal injected at node 0 as it reaches its $k$-hop neighbourhood, hop by
+hop:
+
+<PyCell
+	client:only="react"
+	id="gnn-message-passing"
+	title="message_passing.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+# A tiny graph: 8 nodes, two loose clusters joined by a bridge.
+edges = [(0,1),(0,2),(1,2),(2,3),(3,4),(3,5),(4,5),(5,6),(6,7),(5,7)]
+N = 8
+A = np.zeros((N, N))
+for a, b in edges:
+    A[a, b] = A[b, a] = 1
+
+# mean-with-self aggregation = one step of the random-walk operator
+#   A_rw = (A + I) row-normalized
+A_self = A + np.eye(N)
+A_rw = A_self / A_self.sum(1, keepdims=True)
+
+# inject a unit signal at node 0; everything else starts at zero
+h = np.zeros(N); h[0] = 1.0
+history = [h.copy()]
+print(f"layer 0:  {np.round(h, 3)}   nodes reached: 1")
+for k in range(1, 6):
+    h = A_rw @ h                 # <- the whole GNN, minus the learnable weights
+    history.append(h.copy())
+    print(f"layer {k}:  {np.round(h, 3)}   nodes reached: {int((h > 1e-9).sum())}")
+
+print()
+print("After k rounds, node 0's signal has spread to exactly its k-hop")
+print("neighbourhood. That reachable set is a k-layer GNN's receptive field.")
+
+fig, ax = plt.subplots(figsize=(6, 3))
+im = ax.imshow(np.array(history), aspect="auto", cmap="magma")
+ax.set_xlabel("node"); ax.set_ylabel("layer / hop")
+ax.set_title("a signal diffusing by message passing")
+fig.colorbar(im, ax=ax, label="value"); fig.tight_layout()
+`}
+/>
+
+<Aside type="tip" title="Try it">
+	Changing the injection site — setting `h[3] = 1.0` instead — causes the bridge
+	node to activate both clusters. Substituting `A_self @ h` for `A_rw @ h`
+	(un-normalized sum) causes the values to grow without bound with degree rather
+	than remaining a distribution.
+</Aside>
+
+Everything that follows is a refinement of this loop: the **GCN** selects a
+symmetric normalization of $\hat{A}$, **GAT** makes the neighbour weights *learned*
+and input-dependent, and the [final page](/graph-neural-networks/depth-and-pitfalls/)
+examines how powerful this family can be, and where it breaks down.
+
+## References
+
+- Gilmer et al. (2017). *Neural Message Passing for Quantum Chemistry* (the MPNN framework). ICML 2017. [arXiv:1704.01212](https://arxiv.org/abs/1704.01212)
+- Scarselli et al. (2009). *The Graph Neural Network Model* (the original GNN). IEEE Transactions on Neural Networks. [doi:10.1109/TNN.2008.2005605](https://doi.org/10.1109/TNN.2008.2005605)
+- Bronstein et al. (2021). *Geometric Deep Learning: Grids, Groups, Graphs, Geodesics, and Gauges* (permutation symmetry). [arXiv:2104.13478](https://arxiv.org/abs/2104.13478)

@@ -1,0 +1,231 @@
+---
+title: Optimizers
+description: SGD, momentum, Nesterov, RMSprop, Adam, and AdamW — the same gradient employed in more effective ways, compared on a loss surface.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import OptimizerComparison from '../../../components/viz/OptimizerComparison';
+import PyCell from '../../../components/python/PyCell';
+
+[Gradient descent](/neural-networks/gradient-descent/) provides the direction; an
+**optimizer** determines how each step is taken. Plain SGD treats every parameter
+identically and retains no memory, which causes it to progress slowly through
+ravines and stall on plateaus. A small number of inexpensive modifications address
+this, and these are the methods with which modern networks are in practice
+trained.
+
+## Six update rules
+
+All begin from the gradient $g_t = \nabla_\theta L$ and differ in what they carry
+over from previous steps — and, for AdamW, in how they shrink the weights.
+
+- **SGD** — step directly downhill. $\;\theta \leftarrow \theta - \eta\, g_t$.
+- **Momentum** — accumulate a velocity, so that consistent directions build speed
+  and oscillations cancel: $\;v \leftarrow \mu v - \eta g_t,\;\; \theta \leftarrow \theta + v$.
+- **Nesterov** — anticipate the point to which momentum is about to carry the
+  iterate, and evaluate the gradient *there*: $\;v \leftarrow \mu v - \eta\,\nabla L(\theta + \mu v)$.
+  This yields a sharper momentum, less prone to overshoot.
+- **RMSprop** — divide each coordinate by a running root-mean-square of its
+  gradients, so that steep and shallow directions advance at comparable rates:
+  $\;s \leftarrow \rho s + (1-\rho) g_t^2,\;\; \theta \leftarrow \theta - \eta\, g_t / (\sqrt{s} + \epsilon)$.
+- **Adam** — momentum *and* RMSprop combined, with bias correction:
+
+$$
+m_t = \beta_1 m_{t-1} + (1-\beta_1) g_t, \quad
+v_t = \beta_2 v_{t-1} + (1-\beta_2) g_t^2, \quad
+\theta \leftarrow \theta - \eta\,\frac{\hat m_t}{\sqrt{\hat v_t} + \epsilon}.
+$$
+
+- **AdamW** — Adam, but with **weight decay decoupled** from the gradient. Instead
+  of folding an $L_2$ penalty into $g_t$ — where the adaptive denominator
+  $\sqrt{\hat v_t}$ would rescale it unevenly across coordinates — the decay
+  $\lambda\theta$ is applied straight to the weights:
+
+$$
+\theta \leftarrow \theta - \eta\,\frac{\hat m_t}{\sqrt{\hat v_t} + \epsilon} - \eta\,\lambda\,\theta.
+$$
+
+## A comparison of the methods
+
+The same starting point, the same learning rate, and six optimizers are used. The
+contour map represents the loss; darker regions are lower. Pressing **play** (or
+**step**), changing the surface, and increasing $\eta$ until SGD fails illustrates
+their behaviour.
+
+<OptimizerComparison client:visible />
+
+The following behaviours are notable:
+
+- On the **ravine**, SGD oscillates across the steep axis while advancing only
+  slightly along the shallow one; momentum smooths the oscillation; RMSprop and
+  Adam rescale the axes and proceed almost directly to the bottom.
+- On the **saddle**, plain SGD lingers where the gradient is small; momentum and
+  Adam accumulate sufficient speed to escape.
+- On the **bumpy** surface, a small $\eta$ confines every method to the nearest
+  dimple, with momentum the most likely to pass through it.
+- On the **offset bowl** — constructed so its minimum lies well away from the
+  origin — **AdamW** visibly parts from Adam: its decoupled weight decay
+  $-\eta\lambda\theta$ pulls the solution back toward the origin, so it settles
+  short of the true minimum; heavier weight decay pulls it further in. The size of
+  this gap grows with both the learning rate and the solution's distance from the
+  origin, which is why it is conspicuous here and vanishes on the **ravine**, whose
+  minimum already sits at the origin.
+
+<Aside type="caution" title="Adam entails trade-offs">
+	Adaptive methods converge rapidly but may generalize slightly worse than
+	well-tuned SGD with momentum, and they store two additional values per
+	parameter. Much of modern training employs SGD with momentum (vision) or AdamW
+	(transformers); the appropriate choice is determined empirically.
+</Aside>
+
+## Implementation from scratch
+
+Each optimizer requires only a few lines. The four with distinct memory are presented below, run on the same
+ill-conditioned bowl, with the loss plotted on a logarithmic axis so that the
+differences in convergence rate are apparent:
+
+<PyCell
+	client:only="react"
+	id="nn-optimizers"
+	title="optimizers.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+# an ill-conditioned quadratic "ravine": steep in y, shallow in x
+f    = lambda p: 0.05 * p[0]**2 + 0.8 * p[1]**2
+grad = lambda p: np.array([0.1 * p[0], 1.6 * p[1]])
+start = np.array([-4.3, 3.4])
+
+def run(update, steps=120, lr=0.1):
+    p, state, hist = start.copy(), {}, [f(start)]
+    for t in range(1, steps + 1):
+        p = update(p, grad(p), lr, state, t)
+        hist.append(f(p))
+    return hist
+
+def sgd(p, g, lr, s, t):
+    return p - lr * g
+
+def momentum(p, g, lr, s, t):
+    s['v'] = 0.9 * s.get('v', 0) - lr * g
+    return p + s['v']
+
+def rmsprop(p, g, lr, s, t):
+    s['sq'] = 0.9 * s.get('sq', 0) + 0.1 * g * g
+    return p - lr * g / (np.sqrt(s['sq']) + 1e-8)
+
+def adam(p, g, lr, s, t):
+    s['m'] = 0.9   * s.get('m', 0) + 0.1   * g
+    s['v'] = 0.999 * s.get('v', 0) + 0.001 * g * g
+    mh, vh = s['m'] / (1 - 0.9**t), s['v'] / (1 - 0.999**t)
+    return p - lr * mh / (np.sqrt(vh) + 1e-8)
+
+for name, upd in [("SGD", sgd), ("Momentum", momentum), ("RMSprop", rmsprop), ("Adam", adam)]:
+    h = run(upd)
+    plt.plot(h, label=f"{name:9s} final {h[-1]:.4f}")
+    print(f"{name:9s} loss after 120 steps: {h[-1]:.4f}")
+
+plt.yscale("log"); plt.xlabel("step"); plt.ylabel("loss (log scale)")
+plt.title("same bowl, same lr — different memory"); plt.legend(); plt.grid(alpha=0.3)
+`}
+/>
+
+<Aside type="tip" title="An exercise">
+	Consider increasing `lr` toward `1.5` and re-running. The SGD loss curve turns
+	upward — it diverges along the steep axis, where the step $1.6\,\eta$ overruns
+	the stability bound of $2$ — whereas Adam and RMSprop, which normalize per
+	coordinate, remain stable. This robustness to the choice of learning rate is a
+	substantial part of why Adam is the default.
+</Aside>
+
+## L2 regularization is not weight decay
+
+Adam appears above; **AdamW** is a one-line amendment to it, and the reason it
+exists is worth stating precisely. A common way to regularize is to add an $L_2$
+penalty $\tfrac{\lambda}{2}\lVert\theta\rVert^2$ to the loss, which contributes
+$\lambda\theta$ to the gradient. Under plain SGD this is *exactly* **weight
+decay** — every weight is shrunk toward zero by a constant fraction each step.
+Under Adam it is *not*: the term $\lambda\theta$ flows through the same running
+averages and is divided by $\sqrt{\hat v_t}$, so parameters with large gradients
+are decayed less and those with small gradients more. The intended uniform
+shrinkage is distorted by the adaptive denominator.
+
+**AdamW** restores it by *decoupling* the decay — applying $-\eta\lambda\theta$
+directly to the weights, outside the adaptive rescaling:
+
+$$
+\theta \leftarrow \underbrace{\theta - \eta\,\frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}}_{\text{Adam step}} \;-\; \underbrace{\eta\,\lambda\,\theta}_{\text{decoupled decay}}.
+$$
+
+The cell below uses an *ill-conditioned* bowl whose minimum lies off the origin.
+Adam reaches that minimum. Folding in an $L_2$ penalty (Adam + L2) shrinks the
+coordinates *unevenly* — barely along the steep axis, heavily along the shallow one,
+because the penalty is divided by $\sqrt{\hat v_t}$. AdamW shrinks them *uniformly*.
+
+<PyCell
+	client:only="react"
+	id="nn-adamw"
+	title="adamw.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+# ill-conditioned bowl: coordinate 0 steep, coordinate 1 shallow; minimum off-origin
+curv = np.array([100.0, 1.0])
+opt  = np.array([1.0, 1.0])
+grad = lambda p: curv * (p - opt)
+
+def train(mode, lam=0.5, lr=0.05, steps=4000):
+    p = np.zeros(2)
+    m = np.zeros(2)
+    v = np.zeros(2)
+    for t in range(1, steps + 1):
+        g = grad(p)
+        if mode == "l2":
+            g = g + lam * p                 # L2 penalty folded into the gradient
+        m = 0.9   * m + 0.1   * g
+        v = 0.999 * v + 0.001 * g * g
+        mh, vh = m / (1 - 0.9 ** t), v / (1 - 0.999 ** t)
+        p = p - lr * mh / (np.sqrt(vh) + 1e-8)
+        if mode == "adamw":
+            p = p - lr * lam * p            # decoupled weight decay
+    return p
+
+results = {name: train(mode) for mode, name in
+           [("none", "Adam"), ("l2", "Adam + L2"), ("adamw", "AdamW")]}
+
+for name, p in results.items():
+    keep = p / opt
+    print(f"{name:9s} theta = [{p[0]:.3f}, {p[1]:.3f}]   weight kept = [{keep[0]:.3f}, {keep[1]:.3f}]")
+
+x = np.arange(2)
+plt.bar(x - 0.2, results["Adam + L2"] / opt, width=0.4, label="Adam + L2")
+plt.bar(x + 0.2, results["AdamW"] / opt, width=0.4, label="AdamW")
+plt.axhline(1.0, color="gray", lw=0.8)
+plt.xticks(x, ["steep coordinate", "shallow coordinate"])
+plt.ylabel("fraction of weight kept")
+plt.ylim(0, 1.15)
+plt.title("Adam + L2 decays unevenly; AdamW decays uniformly")
+plt.legend()
+`}
+/>
+
+<Aside type="note" title="Why this matters in practice">
+	The *uneven* shrinkage above is a consequence of the bowl being ill-conditioned.
+	On a perfectly isotropic problem it disappears — Adam then rescales every
+	coordinate identically, so Adam-with-L2 shrinks every weight by the same factor
+	too (though not by the same amount AdamW would). Real networks are extremely
+	ill-conditioned, so the uneven shrinkage is the rule rather than the exception —
+	which is why AdamW, not Adam with an L2 term, is the standard optimizer for
+	transformers.
+</Aside>
+
+## References
+
+- Robbins & Monro (1951). *A Stochastic Approximation Method*. Annals of Mathematical Statistics. [doi:10.1214/aoms/1177729586](https://doi.org/10.1214/aoms/1177729586)
+- Polyak (1964). *Some methods of speeding up the convergence of iteration methods* (heavy-ball momentum). USSR Computational Mathematics and Mathematical Physics. [doi:10.1016/0041-5553(64)90137-5](https://doi.org/10.1016/0041-5553%2864%2990137-5)
+- Nesterov (1983). *A method for solving the convex programming problem with convergence rate O(1/k²)*. Soviet Mathematics Doklady. [mathnet.ru](https://www.mathnet.ru/eng/dan46009)
+- Sutskever et al. (2013). *On the importance of initialization and momentum in deep learning*. ICML 2013. [PMLR](https://proceedings.mlr.press/v28/sutskever13.html)
+- Tieleman & Hinton (2012). *Lecture 6.5 — RMSprop: Divide the gradient by a running average of its recent magnitude*. Coursera: Neural Networks for Machine Learning. [slides](https://www.cs.toronto.edu/~tijmen/csc321/slides/lecture_slides_lec6.pdf)
+- Duchi, Hazan & Singer (2011). *Adaptive Subgradient Methods for Online Learning and Stochastic Optimization* (AdaGrad). Journal of Machine Learning Research. [JMLR](https://www.jmlr.org/papers/v12/duchi11a.html)
+- Kingma & Ba (2015). *Adam: A Method for Stochastic Optimization*. ICLR 2015. [arXiv:1412.6980](https://arxiv.org/abs/1412.6980)
+- Loshchilov & Hutter (2019). *Decoupled Weight Decay Regularization* (AdamW). ICLR 2019. [arXiv:1711.05101](https://arxiv.org/abs/1711.05101)

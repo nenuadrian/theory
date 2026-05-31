@@ -1,0 +1,216 @@
+---
+title: Expectation Maximization
+description: The canonical EM algorithm — latent variables, the evidence lower bound, and the alternation that cannot decrease the likelihood — stated in general before the second road specializes it to control.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import PyCell from '../../../components/python/PyCell';
+
+The second road through reinforcement learning is an instance of a procedure that
+predates it by decades: **expectation maximization** (EM). Before specializing it
+to control, it is worth stating EM in its canonical form — as the standard remedy
+for maximum-likelihood estimation when each observation is accompanied by an
+unobserved, or *latent*, variable. The structure established here — a lower bound
+on the objective, an alternation between completing the data and refitting the
+model, and a guarantee that the likelihood cannot decrease — transfers intact to
+the policy-optimization setting of the pages that follow.
+
+## The obstacle: a latent variable
+
+Consider a model $p(x, z; \theta)$ over an observed variable $x$ and a latent
+variable $z$, with parameters $\theta$. Only $x$ is seen; $z$ must be summed out
+to obtain the quantity maximum likelihood maximizes, the **log-evidence**
+
+$$
+\log p(x; \theta) \;=\; \log \sum_{z} p(x, z; \theta).
+$$
+
+The logarithm of a sum does not separate, so neither a closed form nor a clean
+gradient is generally available. The underlying difficulty is circular: the best
+parameters depend on which latent value generated each point, and that assignment
+depends in turn on the parameters.
+
+The canonical instance is a **mixture of Gaussians**. Each point $x_i$ is drawn
+from one of $K$ components, but the component identity $z_i$ is unobserved. Were
+the labels known, fitting each component would be elementary; were the parameters
+known, the labels would follow from Bayes' rule. EM resolves the circularity by
+alternating between the two.
+
+## A lower bound on the evidence
+
+Introduce *any* distribution $q(z)$ over the latent. For every such $q$, the
+log-evidence admits an exact decomposition:
+
+$$
+\log p(x; \theta) \;=\; \underbrace{\mathbb{E}_{q}\!\left[\log \frac{p(x, z; \theta)}{q(z)}\right]}_{\textstyle \mathcal{L}(q, \theta)} \;+\; \underbrace{D_{\mathrm{KL}}\!\big(q(z) \,\|\, p(z \mid x; \theta)\big)}_{\textstyle \ge\, 0}.
+$$
+
+The identity follows from $p(x, z) = p(z \mid x)\,p(x)$ and the fact that
+$\log p(x;\theta)$ does not depend on $z$. The first term $\mathcal{L}(q, \theta)$
+is the **evidence lower bound** (ELBO); the second is the KL divergence between
+$q$ and the true posterior, which is nonnegative. Hence
+
+$$
+\mathcal{L}(q, \theta) \;\le\; \log p(x; \theta), \qquad \text{with equality if and only if } q(z) = p(z \mid x; \theta).
+$$
+
+Two features of this decomposition drive everything that follows. It is an
+**exact identity**, not an approximation. And because its left-hand side is
+independent of $q$, any gain in $\mathcal{L}$ at fixed $\theta$ is offset by an
+equal reduction in the KL gap — raising the bound tightens it.
+
+<Aside type="note" title="The direction of the gap">
+	The gap is $D_{\mathrm{KL}}(q \,\|\, p(z \mid x))$, with $q$ in the first
+	argument — the [**reverse** KL](/divergences/kl-forward-reverse/) that
+	variational methods always minimize. EM is the special case in which $q$ is
+	unconstrained, so the gap can be driven to *exactly* zero rather than merely
+	made small.
+</Aside>
+
+## The two steps
+
+EM is coordinate ascent on the single function $\mathcal{L}(q, \theta)$:
+maximize it over $q$, then over $\theta$, and repeat.
+
+**E-step (expectation).** Hold $\theta = \theta^{(t)}$ fixed and maximize
+$\mathcal{L}$ over $q$. The only $q$-dependent term is the KL gap, so the
+maximizer is the value that closes it:
+
+$$
+q^{(t)}(z) \;=\; p\big(z \mid x; \theta^{(t)}\big).
+$$
+
+The latent is *completed* by its posterior under the current parameters, and the
+bound now touches the log-evidence at $\theta^{(t)}$.
+
+**M-step (maximization).** Hold $q = q^{(t)}$ fixed and maximize $\mathcal{L}$
+over $\theta$. Discarding the $\theta$-independent entropy $-\mathbb{E}_q[\log q]$,
+this is
+
+$$
+\theta^{(t+1)} \;=\; \arg\max_{\theta}\; \mathbb{E}_{q^{(t)}}\!\big[\log p(x, z; \theta)\big].
+$$
+
+The objective is the **expected complete-data log-likelihood** — the likelihood
+one could write if the latent were observed, averaged over the posterior just
+computed. With the assignment filled in, the maximization is the tractable,
+fully-observed one.
+
+## Why it cannot decrease the likelihood
+
+The two steps chain into a monotonicity guarantee. After the E-step the bound is
+tight, $\mathcal{L}(q^{(t)}, \theta^{(t)}) = \log p(x; \theta^{(t)})$. The M-step
+raises the bound, $\mathcal{L}(q^{(t)}, \theta^{(t+1)}) \ge \mathcal{L}(q^{(t)}, \theta^{(t)})$.
+And the bound lies below the evidence everywhere. Concatenating,
+
+$$
+\log p(x; \theta^{(t+1)}) \;\ge\; \mathcal{L}(q^{(t)}, \theta^{(t+1)}) \;\ge\; \mathcal{L}(q^{(t)}, \theta^{(t)}) \;=\; \log p(x; \theta^{(t)}).
+$$
+
+The likelihood is **nondecreasing at every iteration**. EM never takes a backward
+step — a guarantee no plain gradient ascent on $\log p$ provides without a
+line search. It converges to a stationary point of the likelihood, though not
+necessarily the global maximum; the bound is a *minorizer* that touches the
+objective at the current iterate, which makes EM the prototypical
+minorize-maximize scheme.
+
+## EM on a Gaussian mixture
+
+The mixture model makes each step concrete. The E-step assigns each point a
+**responsibility** — the posterior probability that it belongs to each component.
+The M-step refits each component's mean and variance as a responsibility-weighted
+average, and the mixing weights as the average responsibility. The cell fits two
+one-dimensional Gaussians to unlabelled data and records the log-likelihood at
+every iteration.
+
+<PyCell
+	client:only="react"
+	id="em-gmm"
+	title="em_gmm.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(0)
+
+# Ground-truth two-component mixture. EM observes x only, never the labels z.
+n = 400
+z = rng.random(n) < 0.35
+x = np.where(z, rng.normal(6.0, 1.0, n), rng.normal(1.0, 1.5, n))
+
+def normal_pdf(x, mu, var):
+    return np.exp(-(x - mu) ** 2 / (2 * var)) / np.sqrt(2 * np.pi * var)
+
+# Initialize deliberately away from the truth.
+mu  = np.array([0.0, 3.0])
+var = np.array([1.0, 1.0])
+pi  = np.array([0.5, 0.5])
+
+loglik = []
+for step in range(30):
+    # E-step: responsibilities r[k, i] = p(z = k | x_i) under current params.
+    comp  = np.stack([pi[k] * normal_pdf(x, mu[k], var[k]) for k in range(2)])
+    total = comp.sum(0)
+    r     = comp / total
+    loglik.append(np.log(total).sum())
+    # M-step: maximize the expected complete-data log-likelihood (closed form).
+    Nk  = r.sum(1)
+    pi  = Nk / n
+    mu  = (r * x).sum(1) / Nk
+    var = (r * (x - mu[:, None]) ** 2).sum(1) / Nk
+
+fig, (axL, axR) = plt.subplots(1, 2, figsize=(8.6, 3.2))
+grid = np.linspace(x.min() - 1, x.max() + 1, 300)
+axL.hist(x, bins=40, density=True, color="lightgray")
+for k in range(2):
+    axL.plot(grid, pi[k] * normal_pdf(grid, mu[k], var[k]), lw=2)
+axL.set_title("data and the two fitted components")
+axR.plot(loglik, marker="o", ms=3, color="teal")
+axR.set_title("data log-likelihood per EM step")
+axR.set_xlabel("iteration")
+fig.tight_layout()
+
+order = np.argsort(mu)
+print("recovered means:    ", np.round(mu[order], 2), "  (truth 1.0, 6.0)")
+print("recovered weights:  ", np.round(pi[order], 2))
+print("monotone increasing:", bool(np.all(np.diff(loglik) >= -1e-9)))
+`}
+/>
+
+<Aside type="tip" title="What the two steps are doing">
+	The responsibilities are the E-step's posterior — soft, fractional labels
+	rather than hard assignments. The weighted moments are the M-step, the
+	closed-form maximizer of the expected complete-data likelihood. The
+	right-hand curve is the monotonicity guarantee made visible: it rises at every
+	step and never falls.
+</Aside>
+
+## The same skeleton, applied to control
+
+The next page retains every component of this procedure and changes only its
+interpretation. The correspondence is exact:
+
+| General EM | Control as inference |
+| --- | --- |
+| observed variable $x$ | the event that behaviour was optimal, $\mathcal{O} = 1$ |
+| latent variable $z$ | the action $a$ |
+| posterior $p(z \mid x)$ | the optimal policy $\pi^{*} \propto \pi_{\text{ref}}\exp(A/\alpha)$ |
+| expected complete-data log-likelihood | advantage-weighted log-likelihood |
+| monotone $\log p(x)$ | monotone policy improvement |
+
+The E-step computes a posterior over actions — a reweighted policy $\pi^{*}$ — and
+the M-step fits the network to it. One distinction is worth flagging in advance.
+In the mixture model the M-step maximizes the expected complete-data likelihood
+directly; in control the target $\pi^{*}$ is *nonparametric* and must be
+**projected** onto the network by minimizing the forward KL
+$D_{\mathrm{KL}}(\pi^{*} \,\|\, \pi_\theta)$ — the
+[direction maximum likelihood minimizes](/divergences/kl-forward-reverse/). That
+projection is itself a weighted maximum likelihood, so the two coincide in form.
+
+Continue to [RL as Inference](/reinforcement-learning/rl-as-inference/), where the
+optimality variable is defined and the E-step posterior is derived in closed form.
+
+## References
+
+- Dempster, Laird & Rubin (1977). *Maximum Likelihood from Incomplete Data via the EM Algorithm*. Journal of the Royal Statistical Society: Series B. [doi:10.1111/j.2517-6161.1977.tb01600.x](https://doi.org/10.1111/j.2517-6161.1977.tb01600.x)
+- Neal & Hinton (1998). *A View of the EM Algorithm that Justifies Incremental, Sparse, and Other Variants*. In *Learning in Graphical Models*. [doi:10.1007/978-94-011-5014-9_12](https://doi.org/10.1007/978-94-011-5014-9_12)
+- Hunter & Lange (2004). *A Tutorial on MM Algorithms* (minorize-maximize). The American Statistician. [doi:10.1198/0003130042836](https://doi.org/10.1198/0003130042836)

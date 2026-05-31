@@ -1,0 +1,240 @@
+---
+title: Models Without Pixels
+description: Dropping reconstruction — MuZero's value-equivalent model and its tree search, JEPA's prediction in representation space and the collapse problem, and the generative world models of today.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import MCTSTree from '../../../components/viz/MCTSTree';
+import PyCell from '../../../components/python/PyCell';
+
+[PlaNet](/world-models/rssm-and-planning/) and [Dreamer](/world-models/dreamer/)
+share a commitment inherited from the [VAE](/world-models/perception/): they learn
+the model by **reconstructing observations**. The ELBO's first term is pixel
+reconstruction, and much of the network's capacity is spent learning to render. Yet
+an agent that only needs to *act* has no use for a rendered image. It needs to know
+what reward an action yields and what state it leads to — quantities that may be a
+vanishing fraction of what a pixel-accurate model labours to reproduce. The final
+idea of the track is to discard reconstruction entirely and model only what bears on
+the decision.
+
+## The value-equivalence principle
+
+The justification is a precise one (Grimm et al., 2020). Two models are
+**value-equivalent** — with respect to a set of policies $\Pi$ and value functions
+$\mathcal{V}$ — if they induce the *same Bellman updates*:
+
+$$
+\tilde{\mathcal{T}}^{\pi} v = \mathcal{T}^{\pi} v
+\qquad \text{for all } \pi \in \Pi,\; v \in \mathcal{V},
+$$
+
+where $\mathcal{T}^{\pi} v = r + \gamma P^{\pi} v$ is the [Bellman
+operator](/reinforcement-learning/the-setup/). A model that is value-equivalent to
+the real environment produces identical values, identical planning outcomes, and
+identical policies — *even if its observations are nonsense*. Reconstruction fidelity
+is simply not among the requirements. This frees the model to ignore everything in
+the observation that does not affect value, and to spend its capacity where decisions
+are actually made.
+
+<Aside type="note" title="What gets thrown away">
+	Consider an agent driving through rain. A reconstruction model must predict every
+	raindrop, because the ELBO scores pixels; the overwhelming majority of its effort
+	goes to texture that has no bearing on whether to brake. A value-equivalent model
+	predicts only what changes the return — the car ahead, the road edge — and is
+	indifferent to the rain. The same parameter budget buys a far better *decision*
+	model.
+</Aside>
+
+## MuZero: a model trained to be searched
+
+MuZero (Schrittwieser et al., 2020) realizes this directly. It learns three
+functions, and not one of them reconstructs an observation:
+
+$$
+\underbrace{s_0 = h_\theta(o_{\le t})}_{\text{representation}}
+\qquad
+\underbrace{s_{k+1},\, r_k = g_\theta(s_k, a_k)}_{\text{dynamics}}
+\qquad
+\underbrace{p_k,\, v_k = f_\theta(s_k)}_{\text{prediction}}
+$$
+
+The representation $h$ encodes the history into an abstract root state $s_0$; the
+dynamics $g$ advances the latent and predicts the reward; the prediction $f$ reads off
+a policy $p_k$ and value $v_k$. The latent $s_k$ is **ungrounded** — it lives in no
+observation space and is never decoded. Its only obligation is that unrolling the
+model and reading off rewards, values, and policies reproduces what actually happens.
+Training enforces exactly that, and nothing more: the predicted reward is matched to
+the observed reward, the value to the $n$-step return, and the policy to the output of
+search.
+
+## Search as policy improvement
+
+That last target — the policy from search — is the engine. MuZero plans with **Monte-Carlo
+tree search** over its learned model. Each simulation descends the tree by the **PUCT**
+rule, which balances exploitation against exploration,
+
+$$
+a = \arg\max_a \Big[\, Q(s, a) + c\, P(s, a)\, \frac{\sqrt{\sum_b N(s, b)}}{1 + N(s, a)} \,\Big],
+$$
+
+expands a leaf with the dynamics network, evaluates it with the value head, and backs
+the value up the path. After a few hundred simulations, the **visit counts** at the
+root form a policy markedly better than the prior $P$ the network started from — search
+has done the work of [policy improvement](/reinforcement-learning/policy-gradients/).
+That improved policy becomes the training target for $f$, closing the loop.
+
+The visualization runs this search on a learned model whose prior is deliberately
+*wrong*: it favours the right branch, while the best outcome lies down the left. Step
+through the simulations and watch the visit counts migrate left as the value estimates
+accumulate — the search overriding the prior it was given.
+
+<MCTSTree client:visible />
+
+<PyCell
+	client:only="react"
+	id="wm-mcts"
+	title="mcts.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+np.seterr(all="ignore")
+rng = np.random.default_rng(0)
+
+# A learned, value-equivalent model as a depth-3 decision tree. It predicts only
+# reward (leaf values), value (the value head) and policy (the prior) -- it never
+# reconstructs an observation. The best leaf (0.95) is down the LEFT path, but the
+# prior policy is biased RIGHT (0.8). MCTS must correct the prior.
+LEAF = {7: 0.95, 8: 0.30, 9: 0.25, 10: 0.20, 11: 0.55, 12: 0.50, 13: 0.45, 14: 0.60}
+D = 3; n_internal = 2 ** D - 1; n_total = 2 ** (D + 1) - 1
+is_leaf = lambda i: i >= n_internal
+child = lambda i, a: 2 * i + 1 + a
+prior = lambda i: np.array([0.2, 0.8]) if i == 0 else np.array([0.5, 0.5])
+def best_reachable(i):
+    return LEAF[i] if is_leaf(i) else max(best_reachable(child(i, 0)), best_reachable(child(i, 1)))
+
+# the value head: an imperfect estimate of each node's value (MuZero's f-network)
+vnet = {i: float(np.clip(best_reachable(i) + 0.1 * rng.standard_normal(), 0, 1)) for i in range(n_total)}
+
+c_puct = 1.4
+N, Wv, P = {}, {}, {}
+k = lambda i, a: (i, a)
+def expand(i):
+    P[i] = prior(i)
+    for a in (0, 1): N[k(i, a)] = 0; Wv[k(i, a)] = 0.0
+
+def simulate():
+    path, i = [], 0
+    while not is_leaf(i) and i in P:                        # SELECT by PUCT
+        sumN = sum(N[k(i, a)] for a in (0, 1)); best, ba = -1e9, 0
+        for a in (0, 1):
+            q = Wv[k(i, a)] / N[k(i, a)] if N[k(i, a)] > 0 else 0.0
+            u = c_puct * P[i][a] * np.sqrt(sumN + 1) / (1 + N[k(i, a)])
+            if q + u > best: best, ba = q + u, a
+        path.append((i, ba)); i = child(i, ba)
+    v = LEAF[i] if is_leaf(i) else (expand(i) or vnet[i])   # EXPAND + EVALUATE
+    for (node, a) in path:                                  # BACK UP the value
+        N[k(node, a)] += 1; Wv[k(node, a)] += v
+
+expand(0)
+for _ in range(120):
+    simulate()
+
+visits = np.array([N[k(0, a)] for a in (0, 1)])
+improved = visits / visits.sum()
+print(f"prior policy at root:  LEFT {prior(0)[0]:.2f}   RIGHT {prior(0)[1]:.2f}")
+print(f"MCTS visit policy:     LEFT {improved[0]:.2f}   RIGHT {improved[1]:.2f}   (visits {visits})")
+print("the 0.95 leaf is on the LEFT -> search corrected the misleading prior")
+
+fig, ax = plt.subplots(figsize=(5.4, 3.0))
+xs = np.arange(2)
+ax.bar(xs - 0.2, prior(0), 0.4, color="#ec4899", label="prior policy (network)")
+ax.bar(xs + 0.2, improved, 0.4, color="#2dd4bf", label="MCTS visit policy (improved)")
+ax.set_xticks(xs); ax.set_xticklabels(["LEFT (to 0.95)", "RIGHT (to 0.60)"])
+ax.set_ylabel("action probability"); ax.legend(fontsize=8)
+ax.set_title("search turns a wrong prior into a better policy")
+fig.tight_layout()
+`}
+/>
+
+## JEPA: predicting in representation space
+
+MuZero abandons reconstruction for the sake of *control*. The same move is being made
+for the sake of *representation learning*, in the *Joint-Embedding Predictive
+Architecture* (LeCun, 2022). A JEPA encodes a context and a target into a shared
+representation space and predicts the target's **embedding** from the context's — never
+the target's pixels:
+
+$$
+\min_\theta \; \big\lVert \operatorname{pred}_\theta\big(\operatorname{enc}_\theta(x_{\text{context}})\big) - \operatorname{sg}\big[\operatorname{enc}_{\bar\theta}(x_{\text{target}})\big] \big\rVert^2 .
+$$
+
+Predicting representations rather than pixels sidesteps the [multimodality
+problem](/world-models/dynamics/): the encoder is free to *drop* the unpredictable
+detail (the exact arrangement of leaves on a tree) and keep only what is predictable
+(that there is a tree), because it is judged in its own latent space, not on
+reconstruction.
+
+<Aside type="tip" title="The collapse problem">
+	Predicting one's own representation invites a trivial cheat: if the encoder maps
+	*everything* to the same constant vector, the prediction is perfect and the loss is
+	zero — and the representation is useless. Every non-reconstructive method must
+	prevent this **collapse**. Two families of fix dominate: an **asymmetric** target
+	encoder updated as a slow exponential moving average, with a **stop-gradient**
+	$\operatorname{sg}[\cdot]$ on the target (BYOL, I-JEPA); and explicit
+	**variance–covariance regularization** that forces the representation to retain
+	spread and avoid redundancy (VICReg). The stop-gradient in the loss above is exactly
+	this safeguard.
+</Aside>
+
+Applied to video, the architecture becomes a self-supervised world model: V-JEPA learns
+the dynamics of the visual world by predicting the representations of masked future
+frames, with no reconstruction and no rewards — the predictive substrate on which a
+controller can later be built.
+
+## The frontier
+
+The two threads of this track — predict-to-*act* and predict-to-*generate* — are
+converging in the present generation of large world models:
+
+- **Genie** learns a controllable world model from unlabelled internet video,
+  inferring a latent action space such that the result is *playable* frame by frame.
+- **Video diffusion** models — Sora and its kin — are, in effect, implicit world
+  simulators: trained only to generate, they acquire physical regularities (occlusion,
+  persistence, rough dynamics) as a byproduct, and are being adapted into controllable,
+  action-conditioned simulators.
+- **Domain simulators** such as GAIA for driving turn the world model into a generative
+  proving ground for policies that cannot be safely trained in reality.
+
+## The thread
+
+One idea has run through every page: **a model of the world, learned, and used to act.**
+The obstacle was always the same — [error that compounds](/world-models/the-idea/) over
+a rollout — and the methods are best read as three answers to it. Compress the world
+into a [compact, predictable latent](/world-models/perception/), so the model is
+accurate and the dynamics are smooth. [Bound the horizon](/world-models/dreamer/) and
+bootstrap with a learned value, so the unbounded tail of error is never incurred. And
+model [only what bears on the decision](#the-value-equivalence-principle), so capacity is
+never wasted on the irrelevant. What remains open is what has always been hardest:
+consistency over long horizons, abstraction and hierarchy in the latent, controllability
+and causal structure, and the evaluation of models whose only true test is the
+competence of the agent they produce.
+
+<Aside type="note">
+	The [Reinforcement Learning](/reinforcement-learning/) track supplied the objective
+	these models serve; this track supplied the world they imagine within. Together they
+	are the two halves of an agent that learns not only how to act, but what its actions
+	will bring about.
+</Aside>
+
+## References
+
+- Grimm et al. (2020). *The Value Equivalence Principle for Model-Based Reinforcement Learning*. NeurIPS 2020. [arXiv:2011.03506](https://arxiv.org/abs/2011.03506)
+- Schrittwieser et al. (2020). *Mastering Atari, Go, Chess and Shogi by Planning with a Learned Model* (MuZero). Nature. [arXiv:1911.08265](https://arxiv.org/abs/1911.08265)
+- Silver et al. (2017). *Mastering the Game of Go without Human Knowledge* (AlphaGo Zero; MCTS, PUCT). Nature. [doi:10.1038/nature24270](https://doi.org/10.1038/nature24270)
+- LeCun (2022). *A Path Towards Autonomous Machine Intelligence* (JEPA). [OpenReview](https://openreview.net/forum?id=BZ5a1r-kVsf)
+- Grill et al. (2020). *Bootstrap Your Own Latent: A New Approach to Self-Supervised Learning* (BYOL). NeurIPS 2020. [arXiv:2006.07733](https://arxiv.org/abs/2006.07733)
+- Assran et al. (2023). *Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture* (I-JEPA). CVPR 2023. [arXiv:2301.08243](https://arxiv.org/abs/2301.08243)
+- Bardes, Ponce & LeCun (2022). *VICReg: Variance-Invariance-Covariance Regularization for Self-Supervised Learning*. ICLR 2022. [arXiv:2105.04906](https://arxiv.org/abs/2105.04906)
+- Bardes et al. (2024). *Revisiting Feature Prediction for Learning Visual Representations from Video* (V-JEPA). [arXiv:2404.08471](https://arxiv.org/abs/2404.08471)
+- Bruce et al. (2024). *Genie: Generative Interactive Environments*. ICML 2024. [arXiv:2402.15391](https://arxiv.org/abs/2402.15391)
+- Brooks et al. (2024). *Video generation models as world simulators* (Sora). OpenAI technical report. [openai.com](https://openai.com/index/video-generation-models-as-world-simulators/)
+- Hu et al. (2023). *GAIA-1: A Generative World Model for Autonomous Driving*. [arXiv:2309.17080](https://arxiv.org/abs/2309.17080)

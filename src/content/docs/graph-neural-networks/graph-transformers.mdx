@@ -1,0 +1,260 @@
+---
+title: Graph Transformers
+description: When locality is the obstacle, remove it — let every node attend to every node, and restore the graph through positional encodings and a distance bias on the attention. Laplacian and random-walk encodings, Graphormer, expressivity past 1-WL, and the cost of going global.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import GraphTransformerAttention from '../../../components/viz/GraphTransformerAttention';
+import PyCell from '../../../components/python/PyCell';
+
+The [previous page](/graph-neural-networks/depth-and-pitfalls/) closed with a
+structural complaint: a message-passing network reaches a distant node only by
+stacking layers, and the information that must travel far is **over-squashed**
+through the few edges and the fixed-width vectors that bridge distant regions
+(Alon & Yahav, 2021). Depth does not cure this; it compounds it.
+
+A graph transformer responds by removing the constraint that creates the
+bottleneck. Rather than restricting each node to its neighbours, it lets **every
+node attend to every other node**, exactly as in the original Transformer
+(Vaswani et al., 2017). The [attention page](/graph-neural-networks/graph-attention/)
+already named this limit: a Transformer is a GAT on the *complete* graph. Under
+full attention any two nodes are a single hop apart, so there is no long path to
+squash a signal through — the receptive field is the entire graph after one
+layer.
+
+## A transformer cannot see the graph
+
+The difficulty is the mirror image of the benefit. Self-attention over a set of
+node features is **permutation-equivariant** and reads only those features; the
+adjacency matrix never enters. Presented with the node features alone, the model
+cannot distinguish a path from a star from a triangle — the connectivity that
+*defines* the graph has been discarded. Structure must therefore be put back by
+hand, and there are two complementary places to inject it:
+
+- **into the tokens**, by adding a positional or structural encoding to each
+  node's features before the first layer;
+- **into the scores**, by adding a structural bias to the attention logits.
+
+The remainder of the page develops both.
+
+## Positional encodings: coordinates for a graph
+
+A sequence transformer supplies order through sinusoidal positions. A graph has no
+canonical ordering, so the question becomes: what plays the role of a coordinate?
+The established answer is the **eigenvectors of the graph Laplacian**
+(Dwivedi & Bresson, 2020). Recall from the
+[graph-convolution page](/graph-neural-networks/graph-convolutional-networks/)
+that the eigenvectors of $L = I - D^{-1/2} A D^{-1/2}$ are the graph's *Fourier
+modes*; the lowest non-trivial modes vary smoothly across the graph and so assign
+each node a smooth, global coordinate. They are the natural generalization of the
+sinusoids, which are themselves the eigenvectors of the path graph's Laplacian.
+
+$$
+L = U \Lambda U^\top, \qquad \mathbf{p}_i = \big[\, u_2(i),\, u_3(i),\, \dots,\, u_{k+1}(i) \,\big],
+$$
+
+taking the $k$ lowest non-trivial eigenvectors as the positional encoding of node
+$i$. One subtlety must be handled: an eigenvector is defined only up to sign
+($\mathbf{u}$ and $-\mathbf{u}$ are both valid), so the encodings are given random
+sign flips during training to prevent the model from depending on an arbitrary
+choice.
+
+<Aside type="note" title="Two refinements">
+	The **Spectral Attention Network** (SAN; Kreuzer et al., 2021) learns a
+	positional encoding from the *full* Laplacian spectrum rather than a fixed
+	truncation, and shows it provably exceeds the discriminative power of message
+	passing. A purely structural alternative uses **random walks** (Dwivedi et al.,
+	2022): with $M = D^{-1} A$, node $i$ is described by its return probabilities
+	$[\, M_{ii},\, M^2_{ii},\, \dots,\, M^k_{ii} \,]$ — a fingerprint of the local
+	topology that needs no eigendecomposition.
+</Aside>
+
+## Biasing attention by structure: Graphormer
+
+The second route modifies the attention scores directly. **Graphormer**
+(Ying et al., 2021) introduces three encodings that, taken together, make a
+standard Transformer competitive on molecular graphs while keeping many GNNs as
+special cases.
+
+- **Centrality encoding.** Attention is blind to how connected a node is, so a
+  learnable vector indexed by degree is added to each token,
+  $\mathbf{x}_i = \mathbf{h}_i + \mathbf{z}_{\deg(i)}$, restoring the notion that a
+  hub and a leaf are different.
+- **Spatial encoding.** A learnable scalar $b_{\phi(i,j)}$, indexed by the
+  shortest-path distance $\phi(i,j)$, is added to the attention logit. Distance
+  thus *modulates* attention rather than gating it:
+
+$$
+\alpha_{ij} = \operatorname{softmax}_j\!\left( \frac{(W_Q \mathbf{x}_i)^\top (W_K \mathbf{x}_j)}{\sqrt{d}} + b_{\phi(i,j)} \right).
+$$
+
+- **Edge encoding.** Edge features along the shortest path between $i$ and $j$ are
+  averaged into the same bias, so bond types and similar attributes inform the
+  score.
+
+The spatial bias is the central mechanism, and it is worth seeing in motion. In
+the visualization below, the chosen query node attends to the *whole* graph; the
+slider sets the distance penalty $\gamma$ in a bias $-\gamma\,\phi(i,j)$. At
+$\gamma = 0$ the layer is pure content attention, reaching the far side of the
+graph; as $\gamma$ grows the mass contracts onto nearby nodes and the layer comes
+to behave like a local GNN. The dashed ring marks the two-hop horizon — the entire
+receptive field of a two-layer message-passing network — so any weight placed
+outside it is range that no shallow GNN can attain.
+
+<GraphTransformerAttention client:visible />
+
+<Aside type="tip" title="Read the readout">
+	Watch the figure for *attention beyond two hops*. A two-layer GNN places
+	exactly zero weight there by construction; a single graph-transformer layer,
+	with a modest $\gamma$, places a substantial fraction of its attention on nodes
+	that a shallow GNN cannot reach at all. Driving $\gamma$ upward recovers
+	locality — a demonstration that the local model is contained within the global
+	one as the strong-bias limit.
+</Aside>
+
+## Past the Weisfeiler–Leman ceiling
+
+The previous page established a hard limit: message passing is at most as powerful
+as the **1-WL** test, and cannot, for instance, reliably count triangles or
+separate certain regular graphs. Global attention together with sufficiently rich
+positional encodings breaks through that ceiling — SAN and Graphormer are both
+provably more discriminative than 1-WL.
+
+**TokenGT** (Kim et al., 2022) makes the point in its sharpest form. It treats
+*both nodes and edges* as tokens, augments them with orthonormal node identifiers
+and type embeddings, and applies an unmodified Transformer. With those token
+embeddings the model is at least as expressive as a second-order invariant graph
+network (2-IGN), and therefore strictly more expressive than every
+message-passing GNN. The lesson is that the inductive bias of locality was never
+required for power; what was required was a faithful encoding of structure.
+
+## The price: quadratic attention, and the hybrid recipe
+
+Global attention is not free. Attending over all pairs costs $O(N^2)$ in time and
+memory, which is unremarkable for a molecule of fifty atoms and prohibitive for a
+social network of a million nodes. Two responses have proven durable.
+
+The first keeps a **local message-passing branch for fine structure and adds a
+global-attention branch for range**. **GraphGPS** (Rampášek et al., 2022) codifies
+this into a recipe of three ingredients — a positional or structural encoding, a
+local MPNN, and a global attention module — and pairs it with a linear-attention
+option so the global branch scales.
+
+The second **sparsifies the attention graph itself**. **Exphormer**
+(Shirzad et al., 2023) replaces dense all-pairs attention with attention over an
+*expander* graph augmented by a few virtual global nodes. Expanders are sparse yet
+have the mixing properties of the complete graph, so any two nodes remain within a
+couple of attention hops while the cost falls to linear in $N$ — the whole-graph
+receptive field is preserved at a fraction of the edges.
+
+## Build a graph transformer layer
+
+The following assembles the pieces from scratch: shortest-path distances for the
+spatial bias, a Laplacian positional encoding appended to the node features, and a
+single global-attention head whose logits carry a per-distance bias. The two
+heatmaps make the thesis of the page concrete — the transformer's attention is
+dense and reaches every node, whereas a two-layer GNN's reach is a hard,
+binary two-hop mask:
+
+<PyCell
+	client:only="react"
+	id="gnn-graph-transformer"
+	title="graph_transformer_layer.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+# Two triangles joined through node 2-3: nodes 0,1 are a genuine long way
+# from nodes 4,5, so there is real long-range structure to attend across.
+edges = [(0,1),(0,2),(1,2),(2,3),(3,4),(3,5),(4,5)]
+N = 6
+A = np.zeros((N, N))
+for u, v in edges:
+    A[u, v] = A[v, u] = 1.0
+
+# ---- 1. all-pairs shortest path (BFS from each node) -> the spatial bias ----
+BIG = 10**6
+D = np.full((N, N), BIG, dtype=int)
+for s in range(N):
+    D[s, s] = 0
+    frontier = [s]
+    while frontier:
+        nxt = []
+        for u in frontier:
+            for v in np.where(A[u] > 0)[0]:
+                if D[s, v] > D[s, u] + 1:
+                    D[s, v] = D[s, u] + 1
+                    nxt.append(int(v))
+        frontier = nxt
+
+# ---- 2. Laplacian eigenvector positional encoding (the lowest modes) ----
+deg = A.sum(1)
+Lsym = np.eye(N) - np.diag(deg**-0.5) @ A @ np.diag(deg**-0.5)
+evals, evecs = np.linalg.eigh(Lsym)        # ascending; column 0 is trivial
+pe = evecs[:, 1:4]                          # 3 lowest non-trivial modes
+
+rng = np.random.default_rng(0)
+H = rng.normal(0, 1, (N, 4))                # raw node features
+X = np.concatenate([H, pe], axis=1)         # features augmented with position
+
+# ---- 3. one global self-attention head with a learnable per-distance bias ----
+dk = X.shape[1]
+Wq = rng.normal(0, 0.5, (dk, dk))
+Wk = rng.normal(0, 0.5, (dk, dk))
+bias = np.array([0.0, -1.0, -2.0, -3.0, -4.0, -5.0])   # b_phi, decreasing in dist
+
+def attention(use_spatial):
+    Q, K = X @ Wq, X @ Wk
+    logits = (Q @ K.T) / np.sqrt(dk)
+    if use_spatial:
+        logits = logits + bias[np.minimum(D, 5)]        # add b_{phi(i,j)}
+    logits = logits - logits.max(1, keepdims=True)
+    P = np.exp(logits)
+    return P / P.sum(1, keepdims=True)
+
+P = attention(use_spatial=True)
+np.set_printoptions(precision=3, suppress=True)
+print("every row sums to 1 (attention is over ALL nodes):", np.allclose(P.sum(1), 1))
+print()
+print("node 0 and node 4 are", int(D[0, 4]), "hops apart, yet node 0 places")
+print("  weight", round(float(P[0, 4]), 3), "on node 4 (distance > 2 hops).")
+print("a 2-layer GNN places EXACTLY 0 there, by construction.")
+print()
+print("2-hop GNN reach from node 0:", (D[0] <= 2).astype(int))
+print("transformer attention   0->:", P[0])
+
+fig, ax = plt.subplots(1, 2, figsize=(7.6, 3.4))
+for a, M, t in [(ax[0], P, "global attention + spatial bias"),
+                (ax[1], (D <= 2).astype(float), "2-layer GNN reach (binary)")]:
+    im = a.imshow(M, cmap="magma", vmin=0)
+    a.set_title(t); a.set_xlabel("key j"); a.set_ylabel("query i")
+    fig.colorbar(im, ax=a, fraction=0.046)
+fig.tight_layout()
+`}
+/>
+
+<Aside type="note" title="Where this leaves the track">
+	A graph carries no canonical order, which calls for a permutation-respecting
+	computation. [Message passing](/graph-neural-networks/graphs-and-message-passing/)
+	supplies it locally, yielding the
+	[GCN](/graph-neural-networks/graph-convolutional-networks/) and
+	[GAT](/graph-neural-networks/graph-attention/), but locality is bounded by the
+	1-WL test and frustrated by
+	[over-smoothing and over-squashing](/graph-neural-networks/depth-and-pitfalls/).
+	A graph transformer makes the opposite trade: it discards the edge mask for
+	global attention and reintroduces structure through positional encodings and a
+	distance bias, purchasing long range and additional expressive power at a
+	quadratic cost that hybrid and sparse designs then bring back under control.
+</Aside>
+
+## References
+
+- Vaswani et al. (2017). *Attention Is All You Need*. NeurIPS 2017. [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)
+- Alon & Yahav (2021). *On the Bottleneck of Graph Neural Networks and its Practical Implications* (over-squashing). ICLR 2021. [arXiv:2006.05205](https://arxiv.org/abs/2006.05205)
+- Dwivedi & Bresson (2020). *A Generalization of Transformer Networks to Graphs* (Laplacian eigenvector PE). DLG-AAAI 2021. [arXiv:2012.09699](https://arxiv.org/abs/2012.09699)
+- Kreuzer et al. (2021). *Rethinking Graph Transformers with Spectral Attention* (SAN). NeurIPS 2021. [arXiv:2106.03893](https://arxiv.org/abs/2106.03893)
+- Ying et al. (2021). *Do Transformers Really Perform Bad for Graph Representation?* (Graphormer). NeurIPS 2021. [arXiv:2106.05234](https://arxiv.org/abs/2106.05234)
+- Dwivedi et al. (2022). *Graph Neural Networks with Learnable Structural and Positional Representations* (random-walk encodings). ICLR 2022. [arXiv:2110.07875](https://arxiv.org/abs/2110.07875)
+- Kim et al. (2022). *Pure Transformers are Powerful Graph Learners* (TokenGT). NeurIPS 2022. [arXiv:2207.02505](https://arxiv.org/abs/2207.02505)
+- Rampášek et al. (2022). *Recipe for a General, Powerful, Scalable Graph Transformer* (GraphGPS). NeurIPS 2022. [arXiv:2205.12454](https://arxiv.org/abs/2205.12454)
+- Shirzad et al. (2023). *Exphormer: Sparse Transformers for Graphs*. ICML 2023. [arXiv:2303.06147](https://arxiv.org/abs/2303.06147)
+- Müller et al. (2024). *Attending to Graph Transformers* (survey). TMLR 2024. [arXiv:2302.04181](https://arxiv.org/abs/2302.04181)

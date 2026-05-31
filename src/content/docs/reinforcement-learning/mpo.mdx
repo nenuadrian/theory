@@ -1,0 +1,109 @@
+---
+title: MPO
+description: Maximum a posteriori Policy Optimisation — the EM loop with a reweighted E-step whose temperature is set by a KL dual, and a trust-region weighted-regression M-step.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**Maximum a posteriori Policy Optimisation** (MPO, Abdolmaleki et al. 2018) is the
+[EM loop](/reinforcement-learning/rl-as-inference/) realized as a working,
+off-policy algorithm. It became a standard method for continuous control — robotics
+and locomotion — precisely because the EM structure renders its updates unusually
+stable. It maintains a learned critic and a replay buffer, and it resolves the one
+question the inference view left open: *what temperature $\alpha$ should be used?*
+
+## E-step: reweight, with the temperature chosen for you
+
+Recall that the closed-form improved policy is $q(a \mid s) \propto \pi_{\text{old}}(a
+\mid s)\exp(Q(s, a)/\eta)$. A fixed temperature $\eta$ is problematic: when it is too small,
+$q$ collapses onto one action; when it is too large, $q$ barely improves; and the appropriate
+value drifts as $Q$ changes scale during training. MPO addresses this by **not selecting
+$\eta$ directly** — instead, it requires that the improved policy move a *controlled distance*
+from the old one, and lets that requirement determine the temperature.
+
+Formally, the E-step solves a KL-constrained improvement:
+
+$$
+\max_{q}\; \mathbb{E}_{s \sim \mathcal{D}}\,\mathbb{E}_{a \sim q}\big[\, Q(s, a) \,\big]
+\quad \text{s.t.} \quad
+\mathbb{E}_{s \sim \mathcal{D}}\big[\, D_{\mathrm{KL}}\big(q(\cdot \mid s) \,\|\, \pi_{\text{old}}(\cdot \mid s)\big) \,\big] \le \epsilon_E.
+$$
+
+Its solution is the same Boltzmann form, and the Lagrange multiplier on the
+constraint **is** the temperature $\eta$. One recovers $\eta$ by minimizing a
+convex one-dimensional **dual**:
+
+$$
+\eta^{*} = \arg\min_{\eta > 0}\; \eta\, \epsilon_E + \eta\, \mathbb{E}_{s \sim \mathcal{D}}\!\left[\, \log \mathbb{E}_{a \sim \pi_{\text{old}}}\!\Big[\exp\!\Big(\frac{Q(s, a)}{\eta}\Big)\Big] \,\right].
+$$
+
+A brief run of gradient descent on this scalar yields the temperature that makes
+the E-step move exactly $\epsilon_E$ in KL — automatically, at every iteration,
+regardless of how $Q$ is scaled. In practice $q$ need not be materialized at all:
+one samples $M$ actions per state from $\pi_{\text{old}}$, evaluates the critic, and
+forms **self-normalized weights**
+
+$$
+w_{ij} = \frac{\exp\!\big(Q(s_i, a_{ij})/\eta\big)}{\sum_{k} \exp\!\big(Q(s_i, a_{ik})/\eta\big)}.
+$$
+
+<Aside type="note" title="The temperature dual is the whole trick">
+	Hand-tuning a temperature across tasks and training stages is burdensome. MPO
+	replaces it with an interpretable control — the policy is permitted to improve by $\epsilon_E$
+	nats per step — and solves a small convex problem to enforce it. This is what
+	makes MPO robust where a fixed-temperature method proves sensitive to its settings.
+</Aside>
+
+## M-step: weighted regression inside a trust region
+
+With the weights in hand, the parametric policy is fit by **weighted maximum
+likelihood** — the M-step from the inference page — but with an explicit
+trust-region KL added so that the network update cannot overshoot the target either:
+
+$$
+\max_{\theta}\; \sum_{i, j} w_{ij}\, \log \pi_\theta(a_{ij} \mid s_i)
+\quad \text{s.t.} \quad
+\mathbb{E}_{s}\big[\, D_{\mathrm{KL}}\big(\pi_{\text{old}}(\cdot \mid s) \,\|\, \pi_\theta(\cdot \mid s)\big) \,\big] \le \epsilon_M.
+$$
+
+MPO is thus bounded **twice**: once in the E-step (limiting how far the *target* $q$ may move
+from $\pi_{\text{old}}$) and once in the M-step (limiting how far the *network* may move
+toward $q$). For Gaussian policies, the second constraint is **decoupled** into
+separate bounds on the mean and the covariance, allowing the policy to recenter
+quickly while shrinking its exploration noise slowly — a distinction that is
+material for stable continuous control. Each constraint is enforced with its own Lagrange
+multiplier, optimized jointly with $\theta$.
+
+## Why it's off-policy and where it shines
+
+The expectations above are taken over a state distribution $\mathcal{D}$, and nothing
+requires $\mathcal{D}$ to originate from the current policy. MPO draws states from a
+**replay buffer** and uses a critic $Q_\phi$ learned off-policy (typically via
+Retrace). This makes it considerably more **sample-efficient** than on-policy
+policy-gradient methods, since every transition can be reused many times. Combined with
+the auto-tuned temperature and the decoupled trust region, MPO attains strong and
+stable results across continuous-control benchmarks.
+
+<Aside type="tip" title="MPO as a recipe">
+	The critic $Q_\phi$ is learned off-policy. Each step proceeds as follows: (1) sample actions and score them with
+	$Q_\phi$; (2) solve the scalar dual for $\eta$; (3) form weights $\propto
+	\exp(Q/\eta)$; (4) perform weighted-MLE on $\pi_\theta$ under a decoupled KL trust
+	region. This is the entire algorithm — the EM loop with the step-size of every step
+	governed by a KL bound.
+</Aside>
+
+## What changes next
+
+MPO's machinery — learned $Q$, off-policy replay, a temperature dual, a decoupled
+trust region — is substantial. The next two pages remove components of it.
+[V-MPO](/reinforcement-learning/vmpo/) replaces the learned $Q$ with on-policy
+**advantages** and adds a filtering step, targeting large-scale on-policy
+problems. [AWR](/reinforcement-learning/awr/) removes nearly *everything*, including the
+dual, leaving the smallest version of the loop that remains effective.
+
+## References
+
+- Abdolmaleki et al. (2018). *Maximum a Posteriori Policy Optimisation* (MPO). ICLR 2018. [arXiv:1806.06920](https://arxiv.org/abs/1806.06920)
+- Abdolmaleki et al. (2018). *Relative Entropy Regularized Policy Iteration* (the decoupled-trust-region MPO). [arXiv:1812.02256](https://arxiv.org/abs/1812.02256)
+- Munos et al. (2016). *Safe and Efficient Off-Policy Reinforcement Learning* (Retrace). NeurIPS 2016. [arXiv:1606.02647](https://arxiv.org/abs/1606.02647)
+- Levine (2018). *Reinforcement Learning and Control as Probabilistic Inference: Tutorial and Review*. [arXiv:1805.00909](https://arxiv.org/abs/1805.00909)

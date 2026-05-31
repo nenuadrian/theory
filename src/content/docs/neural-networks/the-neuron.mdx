@@ -1,0 +1,55 @@
+---
+title: The Neuron
+description: A weighted sum and a nonlinearity — the smallest unit of computation in a neural network.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import NeuronPlayground from '../../../components/viz/NeuronPlayground';
+
+A neuron is among the simplest units of computation. It takes a vector of inputs
+$\mathbf{x} = (x_1, \dots, x_n)$, multiplies each by a **weight**, adds a
+**bias**, and passes the result through a nonlinear **activation** $\sigma$.
+
+$$
+z = \sum_{i=1}^{n} w_i x_i + b = \mathbf{w}^\top \mathbf{x} + b,
+\qquad
+a = \sigma(z)
+$$
+
+The pre-activation $z$ is an affine function of the inputs — a line, a plane, a
+hyperplane. A neuron's expressive power beyond a straight boundary derives
+entirely from the activation $\sigma$.
+
+## An interactive single neuron
+
+Consider a single neuron with two inputs. The square renders its output $a$ across
+the **entire input plane** $(x_1, x_2)$ — dark denotes low values, light denotes
+high values — and the teal contour marks the **decision boundary**, where the
+output crosses its middle value. The controls below vary the weights and bias; the
+panel renders the neuron's output across the input plane.
+
+<NeuronPlayground client:visible />
+
+Several properties are evident as the controls are varied:
+
+- **The weights set the boundary's orientation.** The boundary is always
+  perpendicular to the weight vector $\mathbf{w} = (w_1, w_2)$.
+- **The bias translates the boundary.** Changing $b$ slides the boundary without
+  rotating it.
+- **The activation sets the softness.** `sigmoid` and `tanh` fade gradually
+  across the boundary, whereas `ReLU` is flat-then-linear.
+
+## The role of the nonlinearity
+
+Without $\sigma$, composing neurons would yield no additional expressiveness: a
+composition of affine maps is itself affine. Formally, if $f(\mathbf{x}) =
+W_2(W_1 \mathbf{x} + b_1) + b_2$, then $f(\mathbf{x}) = W' \mathbf{x} + b'$ for
+some single $W', b'$. It is the nonlinearity that allows depth to confer
+expressiveness.
+
+## References
+
+- Rosenblatt (1958). *The Perceptron: A Probabilistic Model for Information Storage and Organization in the Brain*. Psychological Review. [doi:10.1037/h0042519](https://doi.org/10.1037/h0042519)
+- Cybenko (1989). *Approximation by Superpositions of a Sigmoidal Function*. Mathematics of Control, Signals and Systems. [doi:10.1007/BF02551274](https://doi.org/10.1007/BF02551274)
+- Hornik (1991). *Approximation Capabilities of Multilayer Feedforward Networks*. Neural Networks. [doi:10.1016/0893-6080(91)90009-T](https://doi.org/10.1016/0893-6080%2891%2990009-T)
+- Nair & Hinton (2010). *Rectified Linear Units Improve Restricted Boltzmann Machines*. ICML 2010. [pdf](https://icml.cc/Conferences/2010/papers/432.pdf)

@@ -1,0 +1,140 @@
+---
+title: Attention
+description: Scaled dot-product attention — queries, keys, and values — the content-based lookup at the heart of every transformer.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import AttentionPlayground from '../../../components/viz/AttentionPlayground';
+import PyCell from '../../../components/python/PyCell';
+
+A word's meaning depends on its context. *"River **bank**"* and *"savings
+**bank**"* share a token but not a sense, and the only means of distinguishing them is
+to examine the neighboring tokens. **Attention** is the mechanism that permits each position
+to do precisely that: to gather information from the remainder of the sequence, weighted by the
+relevance of each other position.
+
+## Queries, keys, and values
+
+The mechanism assigns every token three distinct roles, each a learned linear
+projection of its residual-stream vector $X$:
+
+$$
+Q = X W_Q, \qquad K = X W_K, \qquad V = X W_V.
+$$
+
+Consider the metaphor of a dictionary lookup. A token's **query** $\mathbf{q}_i$ represents
+what it is *seeking*. Every token also exposes a **key** $\mathbf{k}_j$ —
+what it *offers* — and a **value** $\mathbf{v}_j$ — the information it will supply
+if matched. Attention is a *soft* lookup: rather than returning a single value, it
+returns a blend of all values, weighted by how well each key answers the query.
+
+## Scaled dot-product attention
+
+Compatibility is measured by a dot product; this is scaled, passed through a softmax to form weights,
+and used to take the weighted sum of values. The complete operation, for the entire sequence
+at once, is:
+
+$$
+\operatorname{Attention}(Q, K, V) = \operatorname{softmax}\!\left(\frac{Q K^{\top}}{\sqrt{d_k}}\right) V.
+$$
+
+It may be read from the inside outward:
+
+1. **$QK^{\top}$** — every query is dotted with every key, yielding a $T \times T$ grid
+   of raw **scores**. Entry $(i, j)$ quantifies how strongly token $i$'s query aligns with
+   token $j$'s key.
+2. **$/\sqrt{d_k}$** — division by the square root of the key dimension. This prevents the
+   scores from growing without bound as $d_k$ increases; the reasoning is given below.
+3. **$\operatorname{softmax}$** — applied along each row, converting the scores into
+   **attention weights** that are non-negative and sum to 1. Row $i$ is thereby a
+   probability distribution over the positions token $i$ attends to.
+4. **$\cdots V$** — multiplication by the values: each output is a convex combination of
+   value vectors, dominated by the tokens whose keys prevailed in the softmax.
+
+## Reading an attention matrix
+
+The playground below displays that $T \times T$ matrix for a short sentence (the vectors here are
+illustrative rather than learned). Each **row** is one query token's distribution over
+the sequence, and selecting a row highlights it. Adjusting the **temperature** causes the
+softmax to sharpen toward a hard lookup or to flatten toward a uniform average:
+
+<AttentionPlayground client:visible />
+
+Observe the structure: every row sums to 1, the diagonal tends to be strong (a
+token finds *itself* relevant), and related tokens — the two determiners, the two
+nouns — attend to one another. A low temperature concentrates each row onto its
+best match, whereas a high temperature disperses attention into an unweighted mean.
+
+<Aside type="note" title="Why divide by √dₖ?">
+	With random query and key components, each score $\mathbf{q}\cdot\mathbf{k}$ is
+	a sum of $d_k$ products, so its variance grows in proportion to $d_k$ and its magnitude in proportion to
+	$\sqrt{d_k}$. When such large logits are passed into a softmax, it saturates: almost
+	all the weight is placed on one token, and the gradient is near zero elsewhere. Dividing
+	by $\sqrt{d_k}$ rescales the scores back to unit variance, keeping the softmax within
+	its responsive, trainable range.
+</Aside>
+
+## A from-scratch implementation
+
+The complete operation follows in roughly a dozen lines of NumPy — projections, scaled scores,
+a numerically stable softmax, and the weighted sum — printed and rendered as a
+heatmap. The run also reports the score spread before and after scaling, which makes the effect
+of $\sqrt{d_k}$ apparent:
+
+<PyCell
+	client:only="react"
+	id="tf-attention"
+	title="attention.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(0)
+tokens = ["The", "cat", "sat", "on", "the", "mat"]
+T, d = len(tokens), 16
+
+X  = rng.normal(size=(T, d))                  # residual stream (one row per token)
+Wq = rng.normal(size=(d, d)) / np.sqrt(d)     # learned projections (random here)
+Wk = rng.normal(size=(d, d)) / np.sqrt(d)
+Wv = rng.normal(size=(d, d)) / np.sqrt(d)
+
+Q, K, V = X @ Wq, X @ Wk, X @ Wv
+
+def softmax(S):                               # row-wise, numerically stable
+    S = S - S.max(axis=-1, keepdims=True)
+    e = np.exp(S)
+    return e / e.sum(axis=-1, keepdims=True)
+
+scores = Q @ K.T / np.sqrt(d)                 # (T, T) query-key compatibility
+A = softmax(scores)                           # each row sums to 1
+out = A @ V                                   # (T, d) context-mixed vectors
+
+print("score std before scaling:", round(float((Q @ K.T).std()), 2))
+print("score std after  scaling:", round(float(scores.std()), 2))
+print("rows sum to 1:", bool(np.allclose(A.sum(1), 1)), " | output:", out.shape)
+
+fig, ax = plt.subplots(figsize=(4.6, 4.0))
+im = ax.imshow(A, cmap="viridis", vmin=0)
+ax.set_xticks(range(T)); ax.set_xticklabels(tokens, rotation=45, ha="right")
+ax.set_yticks(range(T)); ax.set_yticklabels(tokens)
+ax.set_xlabel("key (attended to)"); ax.set_ylabel("query")
+ax.set_title("attention weights: softmax(QK^T / sqrt(d))")
+fig.colorbar(im, fraction=0.046, pad=0.04); fig.tight_layout()
+`}
+/>
+
+<Aside type="tip" title="Causal masking">
+	Language models predict the next token, so a position must never access the
+	future. This is enforced by **masking**: before the softmax, every score
+	$(i, j)$ with $j > i$ is set to $-\infty$, so that those weights become exactly zero. Adding
+	`scores += np.triu(np.full((T, T), -np.inf), k=1)` before the softmax above
+	renders the attention matrix lower-triangular.
+</Aside>
+
+A single attention pattern per token is restrictive, since a word frequently must track
+several relationships simultaneously. The remedy is to run many attentions in parallel:
+[multi-head attention](/transformers/multi-head-attention/).
+
+## References
+
+- Vaswani et al. (2017). *Attention Is All You Need* (scaled dot-product attention). NeurIPS 2017. [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)
+- Bahdanau, Cho & Bengio (2015). *Neural Machine Translation by Jointly Learning to Align and Translate* (content-based attention). ICLR 2015. [arXiv:1409.0473](https://arxiv.org/abs/1409.0473)

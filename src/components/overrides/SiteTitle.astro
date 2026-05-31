@@ -1,0 +1,51 @@
+---
+// Custom site title styled like a shell prompt — the "opencode" signature.
+const base = import.meta.env.BASE_URL;
+const href = base.endsWith('/') ? base : base + '/';
+---
+
+<a href={href} class="learn-site-title" aria-label="learn — home">
+	<span class="dim">~/</span><span class="name">learn</span><span class="caret">❯</span>
+</a>
+
+<style>
+	.learn-site-title {
+		display: inline-flex;
+		align-items: baseline;
+		gap: 0.05em;
+		font-family: var(--sl-font-mono);
+		font-weight: 600;
+		font-size: 1.05rem;
+		letter-spacing: -0.02em;
+		color: var(--sl-color-text-accent);
+		text-decoration: none;
+		line-height: 1;
+		white-space: nowrap;
+	}
+	.learn-site-title .dim {
+		color: var(--sl-color-gray-4);
+		font-weight: 400;
+	}
+	.learn-site-title .name {
+		color: var(--sl-color-text-accent);
+	}
+	.learn-site-title .caret {
+		margin-left: 0.35em;
+		color: var(--sl-color-gray-3);
+		animation: learn-blink 1.2s step-end infinite;
+	}
+	@keyframes learn-blink {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.15;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.learn-site-title .caret {
+			animation: none;
+		}
+	}
+</style>

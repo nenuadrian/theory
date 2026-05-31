@@ -1,0 +1,115 @@
+---
+title: Multi-Head Attention
+description: Running several attention operations in parallel so each head can specialize — and recombining them with an output projection.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import MultiHeadAttention from '../../../components/viz/MultiHeadAttention';
+import PyCell from '../../../components/python/PyCell';
+
+A single attention operation produces **one** distribution per token — a single answer
+to the question of where a token should attend. A word, however, usually maintains several relationships
+at once: its subject, its modifiers, and the punctuation that bounds its clause. Forcing
+all of these through one softmax constitutes a bottleneck.
+
+## Many heads at the same cost
+
+The remedy carries negligible overhead: $h$ attentions are run in **parallel**, each with its own
+projections, but each operating in a smaller subspace of size $d_k = d / h$.
+
+$$
+\operatorname{head}_i = \operatorname{Attention}\!\left(X W_Q^{(i)},\; X W_K^{(i)},\; X W_V^{(i)}\right),
+\qquad W_\bullet^{(i)} \in \mathbb{R}^{d \times d_k}.
+$$
+
+Each head is an independent scaled dot-product attention of the form developed on the
+[previous page](/transformers/attention/). Because the per-head width is reduced to
+$d/h$, the total computation matches that of a single full-width head; diversity is thus obtained at
+no additional cost. The heads are concatenated and mixed back into the residual stream
+by one further learned projection $W_O$:
+
+$$
+\operatorname{MultiHead}(X) = \operatorname{Concat}(\operatorname{head}_1, \dots, \operatorname{head}_h)\, W_O,
+\qquad W_O \in \mathbb{R}^{d \times d}.
+$$
+
+## Heads specialize
+
+Trained heads reliably assume interpretable roles. Some attend to the
+**previous token** (the foundation of copying and induction); some anchor on the
+**first token** as an "attention sink"; some hold the **diagonal**, preserving a
+token's own value; others sweep **forward**. Four such canonical patterns are shown
+over the same sentence, each a genuine softmax distribution. Hovering over a head enlarges
+it:
+
+<MultiHeadAttention client:visible />
+
+No single one of these constitutes "attention" on its own; the model *concatenates* all of them and
+allows $W_O$ to determine how their outputs are combined. Distinct heads serve distinct functions,
+and these are fused back into one vector per position.
+
+## A from-scratch implementation
+
+A notable feature is that all $h$ heads run as a single batched matrix multiplication:
+projection to the full width $d$, **reshaping** into $h$ slices of width $d_k$, attention
+within each, and a flattening back. The output emerges with exactly the shape of the
+input, ready to be added to the residual stream:
+
+<PyCell
+	client:only="react"
+	id="tf-mha"
+	title="multi_head.py"
+	code={`import numpy as np
+
+rng = np.random.default_rng(1)
+T, d, h = 6, 16, 4
+dk = d // h                                   # each head works in a d/h subspace
+
+X  = rng.normal(size=(T, d))
+Wq = rng.normal(size=(d, d)) / np.sqrt(d)
+Wk = rng.normal(size=(d, d)) / np.sqrt(d)
+Wv = rng.normal(size=(d, d)) / np.sqrt(d)
+Wo = rng.normal(size=(d, d)) / np.sqrt(d)     # mixes the heads back together
+
+def softmax(S):
+    S = S - S.max(-1, keepdims=True)
+    e = np.exp(S)
+    return e / e.sum(-1, keepdims=True)
+
+# split each d-wide projection into h heads: (T, d) -> (h, T, dk)
+Q = (X @ Wq).reshape(T, h, dk).transpose(1, 0, 2)
+K = (X @ Wk).reshape(T, h, dk).transpose(1, 0, 2)
+V = (X @ Wv).reshape(T, h, dk).transpose(1, 0, 2)
+
+A = softmax(Q @ K.transpose(0, 2, 1) / np.sqrt(dk))   # (h, T, T)
+heads  = A @ V                                        # (h, T, dk)
+concat = heads.transpose(1, 0, 2).reshape(T, d)        # (T, d)
+out    = concat @ Wo
+
+print(f"{h} heads x dk={dk}  ->  per-head attention {A.shape}")
+print("each head attends differently (lower entropy = more focused):")
+for i in range(h):
+    p = A[i]
+    ent = float(-(p * np.log(p + 1e-9)).sum(1).mean())
+    print(f"   head {i}: mean attention entropy {ent:.2f}")
+print("output", out.shape, "matches input", X.shape)
+`}
+/>
+
+<Aside type="note" title="The shape contract">
+	Self-attention preserves $X \in \mathbb{R}^{T \times d}$: the same number of tokens
+	and the same width, with information *moved between positions*. This invariance is what permits
+	the operation to be stacked, and what allows the residual stream to run straight through
+	the entire network.
+</Aside>
+
+Attention nonetheless has one blind spot. If the input tokens are permuted, every output
+is permuted identically; the operation has no inherent sense of **order**. This is addressed next
+by [positional encoding](/transformers/positional-encoding/).
+
+## References
+
+- Vaswani et al. (2017). *Attention Is All You Need* (multi-head attention). NeurIPS 2017. [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)
+- Elhage et al. (2021). *A Mathematical Framework for Transformer Circuits*. Anthropic. [transformer-circuits.pub](https://transformer-circuits.pub/2021/framework/index.html)
+- Olsson et al. (2022). *In-context Learning and Induction Heads*. Anthropic. [arXiv:2209.11895](https://arxiv.org/abs/2209.11895)
+- Xiao et al. (2023). *Efficient Streaming Language Models with Attention Sinks* (the attention sink). ICLR 2024. [arXiv:2309.17453](https://arxiv.org/abs/2309.17453)

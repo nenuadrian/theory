@@ -1,0 +1,156 @@
+---
+title: 'KL: Forward vs Reverse'
+description: One formula in two directions. Forward KL covers every mode; reverse KL concentrates on one. The difference is illustrated by fitting a single Gaussian to two.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import KLDivergence from '../../../components/viz/KLDivergence';
+import PyCell from '../../../components/python/PyCell';
+
+The **Kullback–Leibler divergence** measures the expected number of extra bits
+needed to encode samples from $p$ using a code built for $q$:
+
+$$
+\mathrm{KL}(p \,\|\, q) = \sum_x p(x) \ln \frac{p(x)}{q(x)}
+\quad\Big(\text{or } \int p(x)\ln\tfrac{p(x)}{q(x)}\,dx\Big).
+$$
+
+It appeared on the [previous page](/divergences/bregman/) as the Bregman
+divergence of negative entropy; it is *also* the f-divergence with
+$f(t) = t\ln t$. In either case the expectation is taken under the **first**
+argument, and this single fact accounts for why running KL forwards and backwards
+yields such different results.
+
+## Two directions, one model
+
+Consider a complicated true distribution $p$ that is to be approximated by a
+simpler $q$ — for instance, a single Gaussian. The KL may be minimized in either
+order, and the two choices have distinct names and characteristic behaviors:
+
+- **Forward KL** $\;\mathrm{KL}(p \,\|\, q)\;$ — the *inclusive* direction.
+  The expectation is under $p$, so wherever $p(x)$ is large the ratio $p/q$ must
+  not grow without bound: $q$ is penalized severely for being near zero where $p$
+  has mass. It cannot afford to ignore any part of $p$, and so it **spreads to
+  cover every mode**. This is the direction maximum likelihood minimizes.
+- **Reverse KL** $\;\mathrm{KL}(q \,\|\, p)\;$ — the *exclusive* direction.
+  Here the expectation is under $q$, so $q$ is penalized for placing mass where
+  $p \approx 0$. The favorable strategy is to **concentrate on one mode** and
+  avoid the low-density valley between them. This is the direction variational
+  inference and the ELBO minimize.
+
+In summary, **forward KL is mode-covering** (zero-avoiding, mean-seeking),
+whereas **reverse KL is mode-seeking** (zero-forcing).
+
+## Observing the choice
+
+The gray shape below is a fixed, deliberately **bimodal** target $p$. The teal
+curve is a single Gaussian $q$ governed by its mean $\mu$ and width $\sigma$. The
+controls vary these parameters, and both KL values respond accordingly. Each
+direction may then be allowed to select its own best fit:
+
+<KLDivergence client:visible />
+
+- **fit forward** fixes $q$ as a *wide* bell straddling both humps. It places mass
+  in the empty valley, where $p$ has almost none, rather than abandon either mode.
+  The fit is overdispersed, but it covers the entire support.
+- **fit reverse** fixes $q$ as a *narrow* bell centered on one mode, disregarding
+  the other. The fit is sharp and confident, but it has discarded half the
+  distribution.
+
+Neither fit is incorrect; the two optimize different objectives. Forward KL
+averages over all of $p$'s support, whereas reverse KL declines to assign
+probability where $p$ provides no support.
+
+<Aside type="note" title="Forward KL has an exact optimum">
+	The forward fit is not obtained by grid search; it is computed in closed form.
+	Minimizing $\mathrm{KL}(p \,\|\, q)$ over a Gaussian $q$ **matches the
+	moments**: $q$'s mean and variance are set equal to those of $p$. More
+	generally, minimizing forward KL over any exponential family matches expected
+	sufficient statistics, which is precisely what maximum likelihood does. Reverse
+	KL admits no such closed form, so its fit must be found by search.
+</Aside>
+
+## Which direction to use
+
+The choice depends entirely on the cost assigned to a wrong answer:
+
+| | forward $\mathrm{KL}(p \,\Vert\, q)$ | reverse $\mathrm{KL}(q \,\Vert\, p)$ |
+| :-- | :-- | :-- |
+| nickname | inclusive, zero-avoiding | exclusive, zero-forcing |
+| behavior | covers all modes (overdispersed) | picks one mode (can collapse) |
+| needs | samples / density of $p$ | ability to evaluate $p$ up to a constant |
+| shows up in | maximum likelihood, cross-entropy, distillation | variational inference, the ELBO, many RL objectives |
+
+A practical guideline: if the foremost concern is failing to capture part of the
+truth, use the **forward** direction and cover the entire support. If the foremost
+concern is placing confident mass on something false, use the **reverse**
+direction and commit only to what is well supported.
+
+## Verification in code
+
+The following reproduces both fits from first principles: it defines the bimodal
+$p$, integrates each KL on a grid, obtains the forward optimum by moment matching
+and the reverse optimum by search, and plots the two side by side:
+
+<PyCell
+	client:only="react"
+	id="div-kl-fwd-rev"
+	title="forward_reverse.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+# Target p: a bimodal mixture  (weight, mean, std)
+comps = [(0.6, -2.5, 0.6), (0.4, 2.8, 0.9)]
+def normal(x, m, s): return np.exp(-0.5 * ((x - m) / s) ** 2) / (s * np.sqrt(2 * np.pi))
+def p_pdf(x):        return sum(w * normal(x, m, s) for w, m, s in comps)
+
+x  = np.linspace(-10, 10, 1000); dx = x[1] - x[0]
+P  = p_pdf(x)
+
+def kl(a, b):                       # numeric KL(a || b) on the grid
+    a, b = np.maximum(a, 1e-12), np.maximum(b, 1e-12)
+    return np.sum(a * np.log(a / b)) * dx
+
+# Forward optimum: match the mean and variance of p (exact).
+mean = sum(w * m for w, m, _ in comps)
+var  = sum(w * (s * s + m * m) for w, m, s in comps) - mean ** 2
+fwd  = (mean, np.sqrt(var))
+
+# Reverse optimum: grid-search KL(q || p) — no closed form.
+best, best_kl = None, np.inf
+for mu in np.arange(-5, 5.01, 0.1):
+    for sig in np.arange(0.35, 3.01, 0.05):
+        v = kl(normal(x, mu, sig), P)
+        if v < best_kl: best_kl, best = v, (mu, sig)
+rev = best
+
+qf, qr = normal(x, *fwd), normal(x, *rev)
+print(f"forward fit  N(mu={fwd[0]:+.2f}, sd={fwd[1]:.2f})   covers both modes")
+print(f"reverse fit  N(mu={rev[0]:+.2f}, sd={rev[1]:.2f})   locks onto one mode")
+print(f"  KL(p||q) at forward fit = {kl(P, qf):.3f}")
+print(f"  KL(q||p) at reverse fit = {kl(qr, P):.3f}")
+
+fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.3), sharey=True)
+for ax, q, ttl in [(axes[0], qf, "forward  ·  min KL(p || q)"),
+                   (axes[1], qr, "reverse  ·  min KL(q || p)")]:
+    ax.fill_between(x, P, color="0.82", label="p (target)")
+    ax.plot(x, q, color="#13a89a", lw=2, label="q (fit)")
+    ax.set_title(ttl); ax.set_xlim(-7, 7); ax.set_xticks([]); ax.set_yticks([]); ax.legend()
+fig.tight_layout()
+`}
+/>
+
+<Aside type="tip" title="Try it">
+	Making the split more lopsided — changing the weights to `0.8` and `0.2` — and
+	re-running produces a clear contrast. The reverse fit moves decisively onto the
+	heavier mode, while the forward fit only shifts its wide bell toward it. This
+	demonstrates mode-seeking versus mode-covering directly.
+</Aside>
+
+## References
+
+- Kullback & Leibler (1951). *On Information and Sufficiency*. Annals of Mathematical Statistics. [doi:10.1214/aoms/1177729694](https://doi.org/10.1214/aoms/1177729694)
+- Csiszár (1967). *Information-type measures of difference of probability distributions and indirect observations*. Studia Scientiarum Mathematicarum Hungarica.
+- Fisher (1922). *On the Mathematical Foundations of Theoretical Statistics*. Philosophical Transactions of the Royal Society A. [doi:10.1098/rsta.1922.0009](https://doi.org/10.1098/rsta.1922.0009)
+- Blei, Kucukelbir & McAuliffe (2017). *Variational Inference: A Review for Statisticians*. Journal of the American Statistical Association. [arXiv:1601.00670](https://arxiv.org/abs/1601.00670)
+- Hinton, Vinyals & Dean (2015). *Distilling the Knowledge in a Neural Network*. NeurIPS 2014 Deep Learning Workshop. [arXiv:1503.02531](https://arxiv.org/abs/1503.02531)

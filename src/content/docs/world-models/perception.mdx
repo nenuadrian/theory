@@ -1,0 +1,267 @@
+---
+title: "Perception: the VAE"
+description: The variational autoencoder as the perception module of a world model — the evidence lower bound, the KL regularizer, the reparameterization trick, and the smooth latent it produces.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import VAELatent from '../../../components/viz/VAELatent';
+import PyCell from '../../../components/python/PyCell';
+
+The first component of a world model is **vision**: a map from a high-dimensional
+observation $o$ — a frame of pixels — to a compact latent code $z$. A plain
+autoencoder would suffice to compress, but it would not suffice to *predict from*
+or to *sample*. Its latent space is an arbitrary, pitted surface: most points
+decode to nothing meaningful, and small steps need not correspond to small changes.
+A world model requires more. The dynamics model must predict the next $z$, so the
+space must be smooth; the agent must be able to dream, so the space must be
+samplable. The **variational autoencoder** (Kingma and Welling, 2014) is the
+construction that delivers both.
+
+## A generative model with an intractable likelihood
+
+Posit a generative story for the data. A latent is drawn from a fixed **prior**,
+and an observation is drawn from a **decoder** conditioned on it:
+
+$$
+z \sim p(z) = \mathcal{N}(0, I), \qquad o \sim p_\theta(o \mid z).
+$$
+
+Training by maximum likelihood would maximize the **marginal likelihood**
+$p_\theta(o) = \int p_\theta(o \mid z)\, p(z)\, dz$. This integral is intractable:
+it marginalizes a neural-network decoder over the whole latent space. Its
+inversion, the true posterior $p_\theta(z \mid o)$, is intractable for the same
+reason. Both must be approximated.
+
+## The evidence lower bound
+
+Introduce an **encoder** $q_\phi(z \mid o)$ — an *approximate* posterior, realized
+as a network that outputs the mean and variance of a Gaussian over $z$. For any
+such $q_\phi$, the log-likelihood admits an exact decomposition. Multiplying inside
+the logarithm by $q_\phi/q_\phi$ and separating the two ratios,
+
+$$
+\log p_\theta(o)
+= \underbrace{\mathbb{E}_{q_\phi(z \mid o)}\!\left[\log \frac{p_\theta(o, z)}{q_\phi(z \mid o)}\right]}_{\textstyle \mathcal{L}(\theta,\phi;\,o)\;=\;\text{ELBO}}
+\;+\;
+\underbrace{\mathrm{KL}\!\big(q_\phi(z \mid o)\,\big\|\,p_\theta(z \mid o)\big)}_{\textstyle \ge\, 0}.
+$$
+
+The second term is the [KL divergence](/divergences/kl-forward-reverse/) between
+the approximate and true posteriors, and it is non-negative. The first term is
+therefore a **lower bound** on the evidence — the **evidence lower bound**, or
+ELBO — and because the left side does not depend on $\phi$, maximizing the ELBO in
+$\phi$ simultaneously tightens the bound (drives $q_\phi$ toward the true
+posterior) and, in $\theta$, raises the likelihood. Expanding
+$p_\theta(o,z) = p_\theta(o \mid z)\,p(z)$ gives the form that is actually optimized:
+
+$$
+\mathcal{L}(\theta, \phi;\, o)
+= \underbrace{\mathbb{E}_{q_\phi(z \mid o)}\!\big[\log p_\theta(o \mid z)\big]}_{\textstyle \text{reconstruction}}
+\;-\;
+\underbrace{\mathrm{KL}\!\big(q_\phi(z \mid o)\,\big\|\,p(z)\big)}_{\textstyle \text{regularizer}}.
+$$
+
+Two terms, in tension. The **reconstruction** term rewards a latent that retains
+enough of $o$ to rebuild it. The **regularizer** penalizes any departure of the
+posterior from the prior $\mathcal{N}(0, I)$ — it is what packs the codes into a
+smooth, centered, gap-free ball from which samples can later be drawn. The encoder
+must compress *and* conform.
+
+<Aside type="note" title="Why the latent ends up usable">
+	The KL term is the entire reason the VAE's latent differs from an autoencoder's.
+	It forbids the encoder from scattering codes across an unbounded space with empty
+	regions between them. Every posterior is pulled toward the same prior, so the
+	occupied region is connected and the prior's mass actually lands on plausible
+	codes — which is precisely what lets the dynamics model interpolate and the agent
+	sample.
+</Aside>
+
+## The same bound, from Jensen's inequality
+
+The decomposition above is exact and names the gap explicitly, but the ELBO can be
+reached by a second, more direct route worth seeing alongside it. Write the marginal
+likelihood as an expectation over the encoder, by inserting $q_\phi$ into the integral:
+
+$$
+\log p_\theta(o)
+= \log \int p_\theta(o, z)\, dz
+= \log \int q_\phi(z \mid o)\, \frac{p_\theta(o, z)}{q_\phi(z \mid o)}\, dz
+= \log \mathbb{E}_{q_\phi(z \mid o)}\!\left[\frac{p_\theta(o, z)}{q_\phi(z \mid o)}\right].
+$$
+
+Because $\log$ is concave, **Jensen's inequality** moves it inside the expectation at
+the cost of an inequality, $\log \mathbb{E}[X] \ge \mathbb{E}[\log X]$:
+
+$$
+\log p_\theta(o)
+\;\ge\;
+\mathbb{E}_{q_\phi(z \mid o)}\!\left[\log \frac{p_\theta(o, z)}{q_\phi(z \mid o)}\right]
+= \mathcal{L}(\theta, \phi;\, o).
+$$
+
+The same ELBO results, and the two derivations are complementary. The exact
+decomposition quantifies the slack — it is precisely $\mathrm{KL}\big(q_\phi(z \mid o)
+\,\|\, p_\theta(z \mid o)\big)$ — whereas Jensen yields the bound without measuring it.
+They nonetheless agree on when it is tight: Jensen holds with equality only when the
+quantity inside the expectation is constant in $z$, i.e. $p_\theta(o, z) \propto q_\phi(z
+\mid o)$, which is to say $q_\phi(z \mid o) = p_\theta(z \mid o)$ — exactly the condition
+under which the KL term vanishes.
+
+## Two closed forms, and a trick
+
+The construction is practical because both halves of the ELBO are cheap. With a
+diagonal-Gaussian encoder $q_\phi(z \mid o) = \mathcal{N}\big(\mu_\phi(o),\,
+\mathrm{diag}\,\sigma_\phi^2(o)\big)$ and the standard normal prior, the KL has a
+**closed form**:
+
+$$
+\mathrm{KL}\!\big(\mathcal{N}(\mu, \mathrm{diag}\,\sigma^2)\,\big\|\,\mathcal{N}(0, I)\big)
+= \tfrac{1}{2}\sum_{i=1}^{d}\big(\mu_i^2 + \sigma_i^2 - 1 - \log \sigma_i^2\big).
+$$
+
+The reconstruction term is an expectation over $q_\phi$, estimated by sampling a
+$z$. But sampling blocks the gradient: $\nabla_\phi$ cannot pass through a draw from
+a distribution whose parameters are themselves being differentiated. The
+**reparameterization trick** removes the obstruction by pushing the randomness into
+a parameter-free variable,
+
+$$
+z = \mu_\phi(o) + \sigma_\phi(o) \odot \varepsilon, \qquad \varepsilon \sim \mathcal{N}(0, I),
+$$
+
+so that $z$ is now a *deterministic, differentiable* function of $\phi$ and an
+external noise $\varepsilon$. The gradient flows through $\mu_\phi$ and $\sigma_\phi$
+exactly as [backpropagation](/neural-networks/backpropagation/) requires, and the
+whole ELBO is optimized by ordinary gradient ascent.
+
+<Aside type="tip" title="β and the rate–distortion trade">
+	Weighting the regularizer by a coefficient $\beta$ — maximizing
+	$\mathbb{E}_q[\log p_\theta(o \mid z)] - \beta\,\mathrm{KL}$ — turns the ELBO into a
+	dial between two regimes. Large $\beta$ buys a tidier, more disentangled, more
+	samplable latent at the cost of blurrier reconstructions (the **β-VAE**); small
+	$\beta$ recovers a near-autoencoder. The dial is exactly the **rate–distortion**
+	trade: the KL is the *rate* (bits spent on the code), the reconstruction is the
+	*distortion*.
+</Aside>
+
+## The latent, made navigable
+
+The visualization fixes a decoder $o = \mathrm{decode}(z)$ over a two-dimensional
+latent and lets the space be traversed directly. Two properties the VAE is built to
+guarantee are visible at once: **smoothness** — adjacent latents decode to adjacent
+images, so the lattice is a continuous manifold rather than a list — and
+**samplability** — the prior $\mathcal{N}(0, I)$, drawn as the shaded rings, is the
+region the *sample* button draws from, and every draw decodes to something
+plausible.
+
+<VAELatent client:visible />
+
+## A VAE, from scratch
+
+The cell below trains a complete variational autoencoder in NumPy — encoder,
+reparameterized sampling, decoder, the closed-form KL, and manual backpropagation
+through all of it. The data lie on a noisy ring: a one-dimensional manifold (the
+angle) embedded in two dimensions, which a **one-dimensional** latent is exactly
+able to capture. After training, sampling $z \sim \mathcal{N}(0,1)$ and decoding
+produces new points that land back on the ring — the model has learned not merely
+to compress the data but to *generate* it.
+
+<PyCell
+	client:only="react"
+	id="wm-vae-ring"
+	title="vae.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+np.seterr(divide="ignore", over="ignore", invalid="ignore")  # clean output everywhere
+
+rng = np.random.default_rng(0)
+
+# Data: a noisy ring. A 1-D manifold (the angle) sitting in 2-D.
+N = 600
+ang = rng.uniform(0, 2 * np.pi, N)
+X = np.stack([np.cos(ang), np.sin(ang)], 1) + 0.05 * rng.standard_normal((N, 2))
+
+# A VAE with a 1-D latent. Encoder and decoder are one-hidden-layer tanh MLPs.
+H, D = 24, 1
+def init(a, b): return rng.standard_normal((a, b)) * np.sqrt(2.0 / a)
+P = dict(We1=init(2, H), be1=np.zeros(H), Wmu=init(H, D) * 0.1, bmu=np.zeros(D),
+         Wlv=init(H, D) * 0.1, blv=np.zeros(D), Wd1=init(D, H), bd1=np.zeros(H),
+         Wd2=init(H, 2), bd2=np.zeros(2))
+m = {k: np.zeros_like(v) for k, v in P.items()}
+v = {k: np.zeros_like(v) for k, v in P.items()}
+
+beta_max, warmup, lr, B = 0.2, 800, 2e-3, 128   # beta-VAE weight + KL warmup
+rec_hist, kl_hist = [], []
+for it in range(4000):
+    beta = beta_max * min(1.0, it / warmup)
+    x = X[rng.integers(0, N, B)]
+    # --- encode ---
+    he = np.tanh(x @ P["We1"] + P["be1"])
+    mu = he @ P["Wmu"] + P["bmu"]
+    logvar = np.clip(he @ P["Wlv"] + P["blv"], -8, 8)
+    std = np.exp(0.5 * logvar)
+    eps = rng.standard_normal((B, D))
+    z = mu + std * eps                              # reparameterization trick
+    # --- decode ---
+    hd = np.tanh(z @ P["Wd1"] + P["bd1"])
+    xh = hd @ P["Wd2"] + P["bd2"]
+    # --- ELBO = -recon - beta * KL ---
+    recon = np.mean(np.sum((xh - x) ** 2, 1))       # Gaussian decoder
+    kl = np.mean(0.5 * np.sum(mu ** 2 + np.exp(logvar) - 1 - logvar, 1))
+    rec_hist.append(recon); kl_hist.append(kl)
+    # --- backprop ---
+    dxh = 2 * (xh - x) / B
+    g = {}
+    g["Wd2"] = hd.T @ dxh; g["bd2"] = dxh.sum(0)
+    dzd = (dxh @ P["Wd2"].T) * (1 - hd ** 2)
+    g["Wd1"] = z.T @ dzd; g["bd1"] = dzd.sum(0)
+    dz = dzd @ P["Wd1"].T
+    dmu = dz + beta * mu / B                          # recon grad + KL grad
+    dlogvar = dz * (eps * 0.5 * std) + beta * 0.5 * (np.exp(logvar) - 1) / B
+    g["Wmu"] = he.T @ dmu; g["bmu"] = dmu.sum(0)
+    g["Wlv"] = he.T @ dlogvar; g["blv"] = dlogvar.sum(0)
+    dze = (dmu @ P["Wmu"].T + dlogvar @ P["Wlv"].T) * (1 - he ** 2)
+    g["We1"] = x.T @ dze; g["be1"] = dze.sum(0)
+    gn = np.sqrt(sum((gg ** 2).sum() for gg in g.values()))
+    scale = min(1.0, 5.0 / (gn + 1e-8))             # global gradient clip
+    for k in P:                                      # Adam
+        gk = g[k] * scale
+        m[k] = 0.9 * m[k] + 0.1 * gk
+        v[k] = 0.999 * v[k] + 0.001 * gk ** 2
+        mh = m[k] / (1 - 0.9 ** (it + 1)); vh = v[k] / (1 - 0.999 ** (it + 1))
+        P[k] -= lr * mh / (np.sqrt(vh) + 1e-8)
+
+def encode(x): return np.tanh(x @ P["We1"] + P["be1"]) @ P["Wmu"] + P["bmu"]
+def decode(z): return np.tanh(z @ P["Wd1"] + P["bd1"]) @ P["Wd2"] + P["bd2"]
+
+print(f"reconstruction MSE: {rec_hist[0]:.3f} -> {np.mean(rec_hist[-50:]):.3f}")
+print(f"KL to prior:        {kl_hist[0]:.3f} -> {np.mean(kl_hist[-50:]):.3f}  (latent in use)")
+gen = decode(rng.standard_normal((400, 1)))
+print(f"prior samples decode to radius {np.sqrt((gen ** 2).sum(1)).mean():.3f}  (data ring = 1.0)")
+
+recon_X = decode(encode(X))
+fig, ax = plt.subplots(1, 3, figsize=(7.2, 2.6))
+ax[0].scatter(X[:, 0], X[:, 1], s=6, c="#888888"); ax[0].set_title("data", fontsize=9)
+ax[1].scatter(recon_X[:, 0], recon_X[:, 1], s=6, c="#2dd4bf"); ax[1].set_title("reconstruction", fontsize=9)
+ax[2].scatter(gen[:, 0], gen[:, 1], s=6, c="#fb923c"); ax[2].set_title("decode(z ~ N(0,1))", fontsize=9)
+for a in ax:
+    a.set_aspect("equal"); a.set_xticks([]); a.set_yticks([]); a.set_xlim(-1.6, 1.6); a.set_ylim(-1.6, 1.6)
+fig.tight_layout()
+`}
+/>
+
+The KL climbing away from zero is the signal that the latent is being *used*: had
+$\beta$ been too large, the encoder would have collapsed to the prior, the KL would
+have stayed at zero, and the decoder would have produced the data mean — the
+**posterior collapse** that the warm-up and the modest $\beta$ are chosen to avoid.
+
+The VAE supplies the latent $z_t$. What it does not supply is any sense of *time*:
+it sees each observation in isolation and has no notion of what comes next.
+Endowing the latent with dynamics — a model of $p(z_{t+1} \mid z_t, a_t)$ — is the
+[next component](/world-models/dynamics/).
+
+## References
+
+- Kingma & Welling (2014). *Auto-Encoding Variational Bayes* (the VAE; ELBO; reparameterization). ICLR 2014. [arXiv:1312.6114](https://arxiv.org/abs/1312.6114)
+- Rezende, Mohamed & Wierstra (2014). *Stochastic Backpropagation and Approximate Inference in Deep Generative Models*. ICML 2014. [arXiv:1401.4082](https://arxiv.org/abs/1401.4082)
+- Higgins et al. (2017). *β-VAE: Learning Basic Visual Concepts with a Constrained Variational Framework*. ICLR 2017. [OpenReview](https://openreview.net/forum?id=Sy2fzU9gl)

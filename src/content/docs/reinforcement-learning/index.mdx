@@ -1,0 +1,123 @@
+---
+title: Reinforcement Learning
+description: From the policy gradient to GRPO, and the expectation-maximization family — MPO, V-MPO, AWR — presented as two routes to the same KL-regularized objective.
+---
+
+import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+
+Supervised learning provides a teacher: every input arrives paired with the
+correct answer. Reinforcement learning provides only a **critic** that scores an
+action after it has been taken. An agent acts, the environment responds with a
+reward, and the sole objective is to **act so as to accumulate more reward over
+time**. The correct action is never disclosed.
+
+This single distinction — feedback that is *evaluative* (how good was that?)
+rather than *instructive* (here is the answer) — is what makes RL difficult, and
+it accounts for the proliferation of algorithms that appear superficially
+distinct. This track demonstrates that most modern methods are two answers to
+the same question.
+
+## One objective, two roads
+
+Every method considered here optimizes the **same objective** — maximization of
+the expected return
+$J(\theta) = \mathbb{E}_{\pi_\theta}\!\left[\sum_t \gamma^t r_t\right]$ over the
+parameters $\theta$ of a policy $\pi_\theta(a\mid s)$. The algorithms differ in
+*how* they improve $\theta$:
+
+- **Differentiate and ascend.** Estimate $\nabla_\theta J$ from sampled
+  experience and step uphill, taking care that a single update cannot collapse
+  the policy. This is the **policy-gradient** route: `REINFORCE → actor-critic →
+  TRPO → PPO → GRPO`.
+- **Lower-bound and alternate.** Here the policy is not differentiated at all.
+  One first determines, in closed form, the form of a *better* policy (an
+  **E-step**), then trains the network to imitate it by weighted regression (an
+  **M-step**), and repeats. This is the **expectation-maximization** route — the
+  classical EM algorithm, specialized to control:
+  `EM → RL-as-inference → MPO → V-MPO → AWR`.
+
+The central result of the track is that **the two routes converge**. Both keep
+the updated policy close to a reference policy in **KL divergence**. PPO and GRPO
+impose that KL as a penalty because it is effective in practice; the inference
+view *derives* it as the exact, optimal choice. Recognizing this reduces the
+apparent diversity of methods to a single picture.
+
+## The path
+
+The track opens with the shared setup, follows the two roads in turn, and closes
+by setting them side by side.
+
+<CardGrid>
+	<Card title="00 · The Setup" icon="seti:default">
+		[MDPs, returns, and value functions.](/reinforcement-learning/the-setup/)
+		The objective everything else optimizes, and the $V$, $Q$, $A$ vocabulary.
+	</Card>
+</CardGrid>
+
+### The policy-gradient road
+
+<CardGrid>
+	<Card title="01 · Policy Gradients" icon="seti:default">
+		[Differentiating an expectation over actions.](/reinforcement-learning/policy-gradients/)
+		The log-derivative trick, REINFORCE, baselines, and actor-critic.
+	</Card>
+	<Card title="02 · Trust Regions" icon="seti:default">
+		[Why big steps break, and how to bound them.](/reinforcement-learning/trust-regions/)
+		The surrogate objective, TRPO's KL constraint, and PPO's clip.
+	</Card>
+	<Card title="03 · GRPO" icon="seti:default">
+		[Dispensing with the critic.](/reinforcement-learning/grpo/) Group-relative
+		advantages, and how RL post-trains a language model.
+	</Card>
+</CardGrid>
+
+### The expectation-maximization road
+
+<CardGrid>
+	<Card title="04 · Expectation Maximization" icon="seti:default">
+		[The canonical EM algorithm.](/reinforcement-learning/expectation-maximization/)
+		Latent variables, the evidence lower bound, and the monotone E/M alternation.
+	</Card>
+	<Card title="05 · RL as Inference" icon="seti:default">
+		[The EM view of control.](/reinforcement-learning/rl-as-inference/) The
+		KL-regularized objective and its closed-form optimal policy.
+	</Card>
+	<Card title="06 · MPO" icon="seti:default">
+		[EM, made concrete.](/reinforcement-learning/mpo/) A reweighted E-step with
+		a temperature dual, and a trust-region M-step.
+	</Card>
+	<Card title="07 · V-MPO" icon="seti:default">
+		[On-policy MPO at scale.](/reinforcement-learning/vmpo/) Advantages instead
+		of $Q$, top-half filtering, and the same dual.
+	</Card>
+	<Card title="08 · AWR & AWAC" icon="seti:default">
+		[The entire family in three lines.](/reinforcement-learning/awr/)
+		Advantage-weighted regression, the minimal form of the loop.
+	</Card>
+</CardGrid>
+
+### The two roads compared
+
+<CardGrid>
+	<Card title="09 · PG vs EM" icon="seti:default">
+		[One objective, two procedures.](/reinforcement-learning/pg-vs-em/) Ascend
+		the gradient or jump to the optimum — when each is preferable, and the seam
+		between them.
+	</Card>
+</CardGrid>
+
+<Aside type="note">
+	The prerequisites are modest: probability, gradients, the
+	[gradient-descent](/neural-networks/gradient-descent/) loop, and a working
+	familiarity with [KL divergence](/divergences/kl-forward-reverse/) — the
+	thread that runs through the whole track. Everything else specific to RL is
+	re-derived as it arises.
+</Aside>
+
+## References
+
+- Sutton et al. (2000). *Policy Gradient Methods for Reinforcement Learning with Function Approximation* (the policy gradient theorem). NeurIPS 1999. [NeurIPS](https://proceedings.neurips.cc/paper/1999/hash/464d828b85b0bed98e80ade0a5c43b0f-Abstract.html)
+- Williams (1992). *Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning* (REINFORCE). Machine Learning. [doi:10.1007/BF00992696](https://doi.org/10.1007/BF00992696)
+- Schulman et al. (2017). *Proximal Policy Optimization Algorithms* (PPO). [arXiv:1707.06347](https://arxiv.org/abs/1707.06347)
+- Dempster, Laird & Rubin (1977). *Maximum Likelihood from Incomplete Data via the EM Algorithm*. Journal of the Royal Statistical Society: Series B. [doi:10.1111/j.2517-6161.1977.tb01600.x](https://doi.org/10.1111/j.2517-6161.1977.tb01600.x)
+- Sutton & Barto (2018). *Reinforcement Learning: An Introduction* (2nd ed.). MIT Press. [book](http://incompleteideas.net/book/the-book-2nd.html)

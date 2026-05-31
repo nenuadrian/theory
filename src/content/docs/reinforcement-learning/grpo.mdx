@@ -1,0 +1,121 @@
+---
+title: GRPO
+description: Group Relative Policy Optimization — replacing the critic with a Monte-Carlo group baseline, and how RL post-trains a language model.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+[PPO](/reinforcement-learning/trust-regions/) requires a critic $V_\phi(s)$ to
+convert raw returns into advantages. For a language model this is costly: the
+critic is a second network roughly as large as the policy, and the reward — was
+this answer correct, did a human prefer it — typically arrives only at the
+**end** of a long generation. Fitting an accurate per-token value function to a
+single end-of-sequence scalar is both expensive and noisy.
+
+**Group Relative Policy Optimization** (GRPO), introduced in DeepSeekMath and
+brought to prominence by DeepSeek-R1, removes the critic. Its central observation
+is the following: to determine whether an answer is better than average, one may
+**sample several answers and compare them to one another.**
+
+## The group as its own baseline
+
+For each prompt $q$, sample a **group** of $G$ completions
+$\{o_1, \dots, o_G\}$ from the current policy $\pi_{\text{old}}$ and score each
+with the reward model, giving $\{r_1, \dots, r_G\}$. The advantage of a
+completion is its reward, **standardized within the group**:
+
+$$
+\hat{A}_i = \frac{r_i - \operatorname{mean}(r_1, \dots, r_G)}{\operatorname{std}(r_1, \dots, r_G)}.
+$$
+
+This constitutes the entire method. The group mean *is* the baseline $V(s)$ — a
+Monte-Carlo estimate of the average quality of this prompt, computed on the fly
+from sibling completions rather than from a learned network. A completion better
+than its peers receives $\hat{A}_i > 0$; one that is worse receives $\hat{A}_i <
+0$. For outcome rewards, every token in completion $o_i$ shares the same
+$\hat{A}_i$.
+
+## The objective
+
+GRPO then substitutes these advantages into a PPO-style clipped surrogate,
+averaged over the group and over tokens, with one addition — an explicit KL
+penalty to a frozen **reference policy** $\pi_{\text{ref}}$ (typically the model
+immediately after supervised fine-tuning):
+
+$$
+J_{\mathrm{GRPO}}(\theta) = \mathbb{E}_{q,\, \{o_i\}}\!\left[ \frac{1}{G}\sum_{i=1}^{G} \frac{1}{|o_i|}\sum_{t=1}^{|o_i|} \Big( \min\big(\rho_{i,t}\hat{A}_i,\; \operatorname{clip}(\rho_{i,t},\, 1{-}\epsilon,\, 1{+}\epsilon)\,\hat{A}_i\big) - \beta\, D_{\mathrm{KL}}\!\big[\pi_\theta \,\|\, \pi_{\text{ref}}\big] \Big) \right],
+$$
+
+where $\rho_{i,t} = \tfrac{\pi_\theta(o_{i,t} \mid q, o_{i,<t})}{\pi_{\text{old}}(o_{i,t} \mid q, o_{i,<t})}$
+is the per-token importance ratio. The KL uses a low-variance, always-positive
+estimator:
+
+$$
+D_{\mathrm{KL}}\!\big[\pi_\theta \,\|\, \pi_{\text{ref}}\big]
+\approx \frac{\pi_{\text{ref}}(o_{i,t} \mid \cdot)}{\pi_\theta(o_{i,t} \mid \cdot)} - \log \frac{\pi_{\text{ref}}(o_{i,t} \mid \cdot)}{\pi_\theta(o_{i,t} \mid \cdot)} - 1.
+$$
+
+Two differences from PPO-for-RLHF warrant attention. First, there is **no value
+network** at all — the only models involved are the policy, a frozen reference,
+and a reward model. Second, the KL is a **term in the loss**, rather than folded
+into the reward as a per-token bonus as in classic RLHF; this keeps the
+advantage estimate uncontaminated and the regularization explicit.
+
+<Aside type="note" title="What the KL term buys you">
+	Reward models are proxies, and a policy optimized aggressively against a proxy
+	will exploit its flaws — degenerate text that scores well yet reads poorly
+	(*reward hacking*). The $\beta\, D_{\mathrm{KL}}[\pi_\theta \,\|\, \pi_{\text{ref}}]$
+	tether keeps the policy in the neighborhood of the well-behaved
+	fine-tuned model from which it began. This observation should be retained: the
+	[next page](/reinforcement-learning/rl-as-inference/) shows that this exact
+	tether is not a heuristic but the *optimal* choice, and derives the policy it
+	implies in closed form.
+</Aside>
+
+## Why it works for language models
+
+The setup is well suited to LLM post-training:
+
+- **Verifiable rewards.** For mathematics and code, the reward can be a *checker*
+  — whether the final answer is correct, whether the tests pass — requiring no
+  learned reward model at all. Group-relative advantages convert that single bit
+  per completion into a usable training signal. This is the mechanism behind
+  RL-trained reasoning models: sample many chains of thought and upweight those
+  that reach the correct answer.
+- **Inexpensive baseline.** Generating $G$ completions is an operation that
+  inference stacks are already optimized to perform in parallel. Exchanging a
+  learned critic for a few additional samples is generally advantageous at scale.
+- **Relatively stable updates.** The clip and the KL tether together restrain
+  each step, which is of considerable importance when the policy is an expensive
+  model that cannot be allowed to destabilize.
+
+<Aside type="tip" title="Active research, handle with care">
+	GRPO's normalizations remain a subject of debate. Dividing by the group `std`
+	inflates the weight of prompts on which all completions score similarly, and
+	the per-completion $1/|o_i|$ length term can bias the policy toward particular
+	lengths. Variants (e.g. *Dr. GRPO*) drop one or both normalizers, and some
+	training recipes remove the explicit KL term entirely when the reference tether
+	is not required. The core structure — **group baseline, clipped ratio, optional
+	KL** — is what persists.
+</Aside>
+
+## The end of the first road
+
+This completes the policy-gradient lineage: differentiate the objective
+(REINFORCE), make the step safe (TRPO, PPO), and reduce the machinery to what a
+language model requires (GRPO). Every step **ascended the objective directly**,
+contending with variance and instability throughout.
+
+The second route never differentiates the policy at all. It poses a different
+question — *what form does the optimal policy take, in closed form?* — and the
+answer turns out to explain the KL tether introduced here. This is the subject of
+[RL as inference](/reinforcement-learning/rl-as-inference/).
+
+## References
+
+- Shao et al. (2024). *DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models* (GRPO). [arXiv:2402.03300](https://arxiv.org/abs/2402.03300)
+- DeepSeek-AI (2025). *DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning*. [arXiv:2501.12948](https://arxiv.org/abs/2501.12948)
+- Schulman et al. (2017). *Proximal Policy Optimization Algorithms* (the clipped surrogate). [arXiv:1707.06347](https://arxiv.org/abs/1707.06347)
+- Ouyang et al. (2022). *Training Language Models to Follow Instructions with Human Feedback* (InstructGPT; classic RLHF). NeurIPS 2022. [arXiv:2203.02155](https://arxiv.org/abs/2203.02155)
+- Schulman (2020). *Approximating KL Divergence* (the always-positive KL estimator). [joschu.net](http://joschu.net/blog/kl-approx.html)
+- Liu et al. (2025). *Understanding R1-Zero-Like Training: A Critical Perspective* (Dr. GRPO). [arXiv:2503.20783](https://arxiv.org/abs/2503.20783)

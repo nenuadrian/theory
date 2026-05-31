@@ -1,0 +1,191 @@
+---
+title: The RSSM & Planning
+description: PlaNet's recurrent state-space model — a latent that is part deterministic and part stochastic, trained by a sequential ELBO — and planning within it by the cross-entropy method.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import CEMPlanner from '../../../components/viz/CEMPlanner';
+import PyCell from '../../../components/python/PyCell';
+
+The architecture of the previous two pages trains its parts in sequence: the
+[VAE](/world-models/perception/) first, optimizing reconstruction alone, and the
+[dynamics](/world-models/dynamics/) afterward, on a latent it had no hand in shaping.
+Nothing pressures the VAE to produce a code that is *easy to predict*. PlaNet (Hafner
+et al., 2019) removes the separation. It learns representation and dynamics
+**together**, in a single latent state trained so that what the dynamics will predict
+and what perception will infer are one and the same.
+
+## A state in two parts
+
+The central design is the **recurrent state-space model** (RSSM), and its defining
+choice is to split the latent state into a **deterministic** path and a
+**stochastic** one. A recurrent network carries a deterministic state $h_t$; a
+stochastic state $s_t$ is drawn afresh each step:
+
+$$
+h_t = f_\theta(h_{t-1}, s_{t-1}, a_{t-1}),
+\qquad
+\underbrace{s_t \sim p_\theta(s_t \mid h_t)}_{\text{prior}},
+\qquad
+\underbrace{o_t \sim p_\theta(o_t \mid h_t, s_t)}_{\text{decoder}},
+\qquad
+\underbrace{r_t \sim p_\theta(r_t \mid h_t, s_t)}_{\text{reward}}.
+$$
+
+Neither path suffices alone. A purely **stochastic** state-space model struggles to
+retain information across many steps: every transition resamples, and the signal is
+repeatedly corrupted by noise. A purely **deterministic** recurrence — a plain RNN —
+cannot represent the *uncertainty* that [the future demands](/world-models/dynamics/),
+since it commits to one continuation. The RSSM keeps both: $h_t$ is a reliable,
+noise-free channel along which memory and gradients flow over long horizons, while
+$s_t$ injects, at each step, the stochasticity needed to model multiple futures.
+
+## Inference and the sequential ELBO
+
+The prior $p_\theta(s_t \mid h_t)$ is what the model predicts *before* seeing the
+observation. To train it, the RSSM also learns an **encoder** that infers the
+stochastic state *after* seeing the observation — the posterior
+$q_\phi(s_t \mid h_t, o_t)$. The whole model is fit by maximizing a variational bound
+on the likelihood of the observed sequence, summed over time:
+
+$$
+\ln p_\theta(o_{1:T} \mid a_{1:T})
+\;\ge\;
+\sum_{t=1}^{T}
+\Big(
+\underbrace{\mathbb{E}_{q_\phi}\!\big[\ln p_\theta(o_t \mid h_t, s_t)\big]}_{\text{reconstruction}}
+\;-\;
+\underbrace{\mathbb{E}_{q_\phi}\!\big[\mathrm{KL}\big(q_\phi(s_t \mid h_t, o_t)\,\big\|\,p_\theta(s_t \mid h_t)\big)\big]}_{\text{prediction}}
+\Big).
+$$
+
+The structure mirrors the [single-step ELBO](/world-models/perception/), but the KL
+now carries the entire weight of the world model. It is the divergence between what
+perception infers and what the dynamics predicted — and driving it down trains the
+**prior to anticipate the posterior**. After training, the model can roll its prior
+forward with no observations at all and stay close to the states perception *would*
+have inferred. That is precisely the predictable latent the staged architecture
+lacked, and it is what makes imagination accurate.
+
+<Aside type="note" title="KL balancing and free nats">
+	The KL must do two jobs at once: pull the posterior toward the prior, and pull the
+	prior toward the posterior. These are not equally important — at imagination time
+	the agent rolls out the *prior*, so it matters most that the prior learns. DreamerV2
+	therefore **balances** the KL with a stop-gradient, $\mathrm{sg}(\cdot)$:
+	$$
+	\alpha\,\mathrm{KL}\big(\mathrm{sg}(q)\,\|\,p\big) + (1-\alpha)\,\mathrm{KL}\big(q\,\|\,\mathrm{sg}(p)\big),
+	\qquad \alpha \approx 0.8,
+	$$
+	so most of the gradient trains the prior toward a fixed posterior. **Free nats** —
+	clipping the KL below a small floor — prevent it from collapsing to zero and
+	discarding the stochastic state entirely.
+</Aside>
+
+## Planning in the latent
+
+PlaNet learns no policy and no value function. It chooses actions by **planning**
+directly in the latent space, at every step, with the cross-entropy method (CEM) — a
+population-based, gradient-free optimizer. Holding the model fixed, and starting from
+the inferred current state:
+
+1. **Sample.** Draw a population of $N$ action sequences $a_{t:t+H}$ from a diagonal
+   Gaussian $\mathcal{N}(\mu, \sigma^2)$ over the horizon.
+2. **Evaluate.** Roll each sequence forward through the model's *prior* — entirely in
+   latent space, querying only the reward head, decoding no pixels — and score it by
+   the predicted return $\sum_\tau \hat r_\tau$.
+3. **Refit.** Keep the top-$k$ **elite** sequences and set $\mu, \sigma$ to their
+   sample mean and standard deviation.
+4. **Repeat** a few iterations, then execute only the *first* action $\mu_t$, observe,
+   and replan from the new state — **model-predictive control**.
+
+The visualization runs exactly this loop on a point-mass-to-goal problem with an
+obstacle. Scrub the iterations: a diffuse cloud of candidate trajectories
+concentrates, iteration by iteration, onto a single plan that bends around the
+obstacle and lands on the goal, as the elite come to agree and the sampling variance
+collapses.
+
+<CEMPlanner client:visible />
+
+<Aside type="tip" title="Why a learned model makes this cheap">
+	CEM is expensive in the *real* world — each of the thousands of rollouts would cost
+	a real interaction. In a *learned* model it is nearly free: the rollouts are
+	batched tensor operations, and the reward is read straight off a head without ever
+	rendering an observation. The model converts the cost of planning from environment
+	steps into arithmetic.
+</Aside>
+
+## A planner, in code
+
+The cell implements the CEM planner end to end against an exact point-mass model. The
+cost falls sharply over a dozen iterations as the elite converge, and the resulting
+plan reaches the goal while clearing the obstacle.
+
+<PyCell
+	client:only="react"
+	id="wm-cem-planner"
+	title="cem_planner.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+np.seterr(all="ignore")
+rng = np.random.default_rng(0)
+
+# A 2-D point-mass model. Actions are per-step displacements; reach the goal while
+# avoiding a circular obstacle. (Here the model is exact; PlaNet's is learned.)
+H = 24
+start = np.array([-1.6, 0.0]); goal = np.array([1.6, 0.0])
+obs_c = np.array([0.0, 0.0]); obs_r = 0.6
+umax = 0.28
+
+def rollout(U):                                  # U: (H, 2) action sequence
+    p = start.copy(); pen = 0.0; path = [p.copy()]
+    for t in range(H):
+        p = p + np.clip(U[t], -umax, umax)
+        d = np.linalg.norm(p - obs_c)
+        if d < obs_r + 0.1: pen += (obs_r + 0.1 - d)   # soft barrier
+        path.append(p.copy())
+    cost = 6.0 * np.sum((p - goal) ** 2) + 40.0 * pen + 0.5 * np.sum(U ** 2)
+    return cost, np.array(path)
+
+# Cross-entropy method over the whole action sequence.
+N, elite, iters = 80, 12, 14
+mu = np.zeros((H, 2)); sig = np.full((H, 2), 0.18)
+best = []
+for it in range(iters):
+    S = mu[None] + sig[None] * rng.standard_normal((N, H, 2))   # sample population
+    C = np.array([rollout(s)[0] for s in S])                    # evaluate
+    idx = np.argsort(C)[:elite]                                 # select elite
+    mu, sig = S[idx].mean(0), S[idx].std(0) + 1e-3              # refit Gaussian
+    best.append(float(C[idx[0]]))
+
+_, path = rollout(mu)
+print("best cost per iteration:", [round(c, 2) for c in best])
+print(f"final distance to goal: {np.linalg.norm(path[-1] - goal):.3f}")
+print(f"obstacle clearance:     {min(np.linalg.norm(p - obs_c) for p in path) - obs_r:.3f}")
+
+fig, ax = plt.subplots(1, 2, figsize=(7.2, 3.2))
+th = np.linspace(0, 2 * np.pi, 60)
+ax[0].fill(obs_c[0] + obs_r * np.cos(th), obs_c[1] + obs_r * np.sin(th), color="#ec4899", alpha=0.2)
+ax[0].plot(path[:, 0], path[:, 1], "-o", c="#fb923c", ms=3, label="executed plan")
+ax[0].scatter(*start, c="k", s=40); ax[0].scatter(*goal, c="#f59e0b", s=80, marker="*")
+ax[0].set_aspect("equal"); ax[0].set_xlim(-2, 2); ax[0].set_ylim(-1.4, 1.4)
+ax[0].legend(fontsize=8); ax[0].set_title("the plan", fontsize=9)
+ax[1].plot(best, "-o", c="#2dd4bf", ms=3)
+ax[1].set_xlabel("CEM iteration"); ax[1].set_ylabel("best cost")
+ax[1].set_title("cost falls as the elite agree", fontsize=9)
+fig.tight_layout()
+`}
+/>
+
+Planning at every step is powerful but costly: the agent re-solves an optimization
+from scratch for each action, and reuses nothing it learned about *how to behave*.
+The [next page](/world-models/dreamer/) amortizes that effort. Rather than plan,
+Dreamer trains an actor and a critic on trajectories imagined by exactly this kind of
+model — paying the planning cost once, at training time, and acting instantly
+thereafter.
+
+## References
+
+- Hafner et al. (2019). *Learning Latent Dynamics for Planning from Pixels* (PlaNet / RSSM). ICML 2019. [arXiv:1811.04551](https://arxiv.org/abs/1811.04551)
+- Hafner et al. (2021). *Mastering Atari with Discrete World Models* (DreamerV2; KL balancing). ICLR 2021. [arXiv:2010.02193](https://arxiv.org/abs/2010.02193)
+- Rubinstein (1997). *Optimization of computer simulation models with rare events* (the cross-entropy method). European Journal of Operational Research. [doi:10.1016/S0377-2217(96)00385-2](https://doi.org/10.1016/S0377-2217%2896%2900385-2)
+- Kingma et al. (2016). *Improving Variational Inference with Inverse Autoregressive Flow* (the free-bits/free-nats device). NeurIPS 2016. [arXiv:1606.04934](https://arxiv.org/abs/1606.04934)

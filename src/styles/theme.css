@@ -1,0 +1,1047 @@
+/* =========================================================================
+   learn — "opencode" theme for Starlight
+   Monochrome, monospace-forward, sharp 1px borders, terminal/TUI motifs.
+   ========================================================================= */
+
+:root {
+	--sl-font: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+	--sl-font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', 'JetBrains Mono',
+		Menlo, Consolas, monospace;
+
+	/* Tighter, more "designed" rhythm */
+	--sl-line-height: 1.7;
+	--sl-content-width: 50rem;
+	--sl-nav-height: 3.75rem;
+
+	/* Sharp everything */
+	--learn-radius: 0px;
+	--ec-brdRad: 0px;
+}
+
+/* ----- Dark theme (default) ---------------------------------------------- */
+:root,
+:root[data-theme='dark'] {
+	--sl-color-white: #fafafa;
+	--sl-color-gray-1: #e7e7ea;
+	--sl-color-gray-2: #c4c4cb;
+	--sl-color-gray-3: #9a9aa4;
+	--sl-color-gray-4: #6c6c76;
+	--sl-color-gray-5: #3a3a40;
+	--sl-color-gray-6: #1c1c1f;
+	--sl-color-gray-7: #141416;
+	--sl-color-black: #0a0a0b;
+
+	--sl-color-accent-low: #232327;
+	--sl-color-accent: #e4e4e7;
+	--sl-color-accent-high: #fafafa;
+
+	--sl-color-text: #c9c9d0;
+	--sl-color-text-accent: #fafafa;
+	--sl-color-text-invert: #0a0a0b;
+
+	--sl-color-bg: #0a0a0b;
+	--sl-color-bg-nav: #0b0b0d;
+	--sl-color-bg-sidebar: #0b0b0d;
+	--sl-color-bg-inline-code: #1a1a1d;
+	--sl-color-bg-accent: #fafafa;
+
+	--sl-color-hairline: #232327;
+	--sl-color-hairline-light: #1b1b1e;
+	--sl-color-hairline-shade: #121214;
+
+	--learn-grid-line: rgba(255, 255, 255, 0.04);
+	--learn-glow: rgba(255, 255, 255, 0.06);
+}
+
+/* ----- Light theme ------------------------------------------------------- */
+:root[data-theme='light'] {
+	--sl-color-white: #0a0a0b; /* high-contrast text */
+	--sl-color-gray-1: #1c1c1f;
+	--sl-color-gray-2: #3a3a40;
+	--sl-color-gray-3: #6c6c76;
+	--sl-color-gray-4: #9a9aa4;
+	--sl-color-gray-5: #d6d6da;
+	--sl-color-gray-6: #efeff1;
+	--sl-color-gray-7: #f6f6f7;
+	--sl-color-black: #ffffff;
+
+	--sl-color-accent-low: #e7e7ea;
+	--sl-color-accent: #18181b;
+	--sl-color-accent-high: #000000;
+
+	--sl-color-text: #2a2a2e;
+	--sl-color-text-accent: #0a0a0b;
+	--sl-color-text-invert: #fafafa;
+
+	--sl-color-bg: #ffffff;
+	--sl-color-bg-nav: #fafafa;
+	--sl-color-bg-sidebar: #fafafa;
+	--sl-color-bg-inline-code: #f0f0f2;
+	--sl-color-bg-accent: #0a0a0b;
+
+	--sl-color-hairline: #e7e7ea;
+	--sl-color-hairline-light: #efeff1;
+	--sl-color-hairline-shade: #f3f3f4;
+
+	--learn-grid-line: rgba(0, 0, 0, 0.04);
+	--learn-glow: rgba(0, 0, 0, 0.05);
+}
+
+/* ----- Global type & shape ---------------------------------------------- */
+body {
+	font-feature-settings: 'ss01', 'cv01', 'cv03';
+	letter-spacing: -0.003em;
+}
+
+/* Mono for the structural/chrome UI — the terminal signal */
+.sidebar-content a,
+.sidebar-content .group-label,
+nav.sidebar a,
+starlight-toc a,
+.right-sidebar a,
+mobile-starlight-toc a,
+.tab > a,
+[role='tablist'] a {
+	font-family: var(--sl-font-mono);
+	font-size: var(--sl-text-sm, 0.875rem);
+	letter-spacing: -0.01em;
+}
+
+/* Headings: keep sans but tighten for a sharper look */
+.sl-markdown-content :is(h1, h2, h3, h4) {
+	letter-spacing: -0.02em;
+	font-weight: 600;
+}
+
+/* Section headings get a subtle monospace markdown marker, like a code gutter */
+.sl-markdown-content :is(h2, h3)::before {
+	color: var(--sl-color-gray-4);
+	font-family: var(--sl-font-mono);
+	font-weight: 400;
+	font-size: 0.62em;
+	margin-right: 0.5em;
+	vertical-align: 0.12em;
+}
+.sl-markdown-content h2::before {
+	content: '##';
+}
+.sl-markdown-content h3::before {
+	content: '###';
+}
+
+/* Sharp corners across the board */
+.card,
+.sl-markdown-content :not(pre) > code,
+starlight-aside,
+.starlight-aside,
+dialog,
+input,
+button,
+.expressive-code .frame,
+.expressive-code .frame pre,
+.expressive-code pre {
+	border-radius: var(--learn-radius) !important;
+}
+
+/* Hairline borders */
+.sl-markdown-content :not(pre) > code {
+	border: 1px solid var(--sl-color-hairline);
+	padding: 0.1em 0.35em;
+}
+
+/* ----- Active sidebar item: terminal caret ------------------------------ */
+.sidebar-content a[aria-current='page'] {
+	position: relative;
+	background: var(--sl-color-accent-low);
+	color: var(--sl-color-text-accent);
+	font-weight: 600;
+}
+.sidebar-content a[aria-current='page']::before {
+	content: '▍';
+	position: absolute;
+	left: 0.1rem;
+	top: 50%;
+	transform: translateY(-50%);
+	color: var(--sl-color-text-accent);
+}
+
+/* ----- Top nav: hairline underline -------------------------------------- */
+.header {
+	border-bottom: 1px solid var(--sl-color-hairline);
+	backdrop-filter: blur(8px);
+	background: color-mix(in srgb, var(--sl-color-bg-nav) 85%, transparent);
+}
+
+/* ----- Links in prose: underline carries the affordance ----------------- */
+.sl-markdown-content a:not(:where(.not-content *)) {
+	text-decoration-color: var(--sl-color-gray-4);
+	text-underline-offset: 0.2em;
+	transition: text-decoration-color 0.15s ease;
+}
+.sl-markdown-content a:hover:not(:where(.not-content *)) {
+	text-decoration-color: var(--sl-color-text-accent);
+}
+
+/* ----- Asides / callouts: neutralized to monochrome --------------------- */
+.starlight-aside--note,
+.starlight-aside--tip,
+.starlight-aside--caution,
+.starlight-aside--danger,
+.starlight-aside--success {
+	--sl-color-asides-text-accent: var(--sl-color-text-accent);
+	--sl-color-asides-border: var(--sl-color-gray-4);
+	background-color: var(--sl-color-bg-nav);
+	border: 1px solid var(--sl-color-hairline);
+	border-inline-start: 3px solid var(--sl-color-gray-4);
+}
+.starlight-aside__title {
+	color: var(--sl-color-text-accent);
+	font-family: var(--sl-font-mono);
+	letter-spacing: -0.01em;
+}
+
+/* ----- Splash hero: faint terminal grid + glow -------------------------- */
+.hero {
+	position: relative;
+}
+.hero::before {
+	content: '';
+	position: absolute;
+	inset: -2rem -50vw;
+	z-index: -1;
+	background-image: linear-gradient(var(--learn-grid-line) 1px, transparent 1px),
+		linear-gradient(90deg, var(--learn-grid-line) 1px, transparent 1px);
+	background-size: 28px 28px;
+	mask-image: radial-gradient(ellipse 60% 60% at 50% 40%, #000 30%, transparent 75%);
+	-webkit-mask-image: radial-gradient(ellipse 60% 60% at 50% 40%, #000 30%, transparent 75%);
+}
+.hero h1 {
+	letter-spacing: -0.03em;
+}
+.hero .tagline {
+	font-family: var(--sl-font-mono);
+	letter-spacing: -0.01em;
+}
+
+/* Hero action buttons: sharp, mono, terminal-button */
+.hero .actions a {
+	font-family: var(--sl-font-mono);
+	border-radius: var(--learn-radius);
+	border: 1px solid var(--sl-color-hairline);
+	letter-spacing: -0.01em;
+}
+.hero .actions a[data-variant='primary'] {
+	border-color: var(--sl-color-text-accent);
+}
+
+/* ----- Cards: sharp, hairline, hover lift ------------------------------- */
+.card {
+	border: 1px solid var(--sl-color-hairline);
+	background: var(--sl-color-bg-nav);
+	transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.card:hover {
+	border-color: var(--sl-color-gray-4);
+}
+.card .title {
+	font-family: var(--sl-font-mono);
+	letter-spacing: -0.01em;
+}
+
+/* ----- Pagination links ------------------------------------------------- */
+.pagination-links a {
+	border-radius: var(--learn-radius);
+	border-color: var(--sl-color-hairline);
+}
+.pagination-links a:hover {
+	border-color: var(--sl-color-gray-4);
+}
+
+/* ----- KaTeX: let display math breathe & scroll on overflow ------------- */
+.sl-markdown-content .katex-display {
+	margin: 1.25rem 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	padding: 0.25rem 0;
+}
+
+/* =========================================================================
+   PyCell — runnable Python cell, styled like a terminal window
+   ========================================================================= */
+.pycell {
+	margin: 1.5rem 0;
+	border: 1px solid var(--sl-color-hairline);
+	background: var(--sl-color-bg-nav);
+	font-family: var(--sl-font-mono);
+	overflow: hidden;
+}
+
+.pycell__bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.4rem 0.6rem;
+	border-bottom: 1px solid var(--sl-color-hairline);
+	background: var(--sl-color-bg);
+	font-size: 0.75rem;
+	min-height: 2.25rem;
+}
+.pycell__label {
+	color: var(--sl-color-gray-3);
+	letter-spacing: 0.02em;
+}
+.pycell__label::before {
+	content: '▸ ';
+	color: var(--sl-color-gray-4);
+}
+.pycell__spacer {
+	flex: 1;
+}
+.pycell__status {
+	color: var(--sl-color-gray-3);
+	font-size: 0.72rem;
+	animation: pycell-pulse 1.4s ease-in-out infinite;
+}
+@keyframes pycell-pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.45; }
+}
+
+.pycell__btn {
+	font-family: var(--sl-font-mono);
+	font-size: 0.72rem;
+	color: var(--sl-color-text);
+	background: transparent;
+	border: 1px solid var(--sl-color-hairline);
+	border-radius: 0;
+	padding: 0.2rem 0.6rem;
+	cursor: pointer;
+	transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.pycell__btn:hover:not(:disabled) {
+	border-color: var(--sl-color-gray-4);
+	color: var(--sl-color-text-accent);
+}
+.pycell__btn:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+.pycell__btn--run {
+	color: var(--sl-color-text-accent);
+	border-color: var(--sl-color-gray-4);
+	font-weight: 600;
+}
+.pycell__btn--run:hover:not(:disabled) {
+	background: var(--sl-color-text-accent);
+	color: var(--sl-color-bg);
+}
+
+/* CodeMirror — strip rounding, match our mono type, cap height */
+.pycell .cm-editor {
+	font-size: 0.85rem;
+	max-height: 28rem;
+}
+.pycell .cm-editor,
+.pycell .cm-scroller {
+	border-radius: 0;
+	font-family: var(--sl-font-mono);
+}
+.pycell .cm-editor.cm-focused {
+	outline: none;
+}
+.pycell .cm-gutters {
+	border-right: 1px solid var(--sl-color-hairline);
+}
+
+/* Output region */
+.pycell__output {
+	border-top: 1px solid var(--sl-color-hairline);
+	padding: 0.75rem 0.9rem;
+	background: var(--sl-color-bg);
+	overflow-x: auto;
+}
+.pycell__stream,
+.pycell__result,
+.pycell__error {
+	margin: 0;
+	font-family: var(--sl-font-mono);
+	font-size: 0.82rem;
+	line-height: 1.55;
+	white-space: pre-wrap;
+	word-break: break-word;
+	background: none;
+	padding: 0;
+	border: none;
+}
+.pycell__result {
+	color: var(--sl-color-gray-3);
+}
+.pycell__result + .pycell__error,
+.pycell__stream + .pycell__result {
+	margin-top: 0.5rem;
+}
+.pycell__error {
+	margin-top: 0.5rem;
+	color: #ff8585;
+	border-left: 3px solid #ff5555;
+	padding-left: 0.6rem;
+}
+.pycell__image {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	margin: 0.5rem 0;
+	background: #ffffff;
+	padding: 6px;
+	border: 1px solid var(--sl-color-hairline);
+}
+.pycell__richhtml {
+	overflow-x: auto;
+	font-family: var(--sl-font);
+	font-size: 0.85rem;
+}
+.pycell__hint {
+	color: var(--sl-color-gray-4);
+	font-size: 0.8rem;
+}
+
+/* =========================================================================
+   Interactive visualizations (NeuronPlayground, ComputeGraph, …)
+   ========================================================================= */
+.viz {
+	margin: 1.5rem 0;
+	border: 1px solid var(--sl-color-hairline);
+	background: var(--sl-color-bg-nav);
+	padding: 1rem;
+	font-family: var(--sl-font-mono);
+}
+.viz__row {
+	display: flex;
+	gap: 1.25rem;
+	flex-wrap: wrap;
+	align-items: flex-start;
+}
+.viz__canvas-wrap {
+	position: relative;
+	flex: 0 0 auto;
+}
+.viz__canvas {
+	display: block;
+	border: 1px solid var(--sl-color-hairline);
+	image-rendering: auto;
+	background: #111;
+}
+.viz__axis {
+	position: absolute;
+	font-size: 0.65rem;
+	color: var(--sl-color-gray-4);
+}
+.viz__axis--x {
+	bottom: -1.1rem;
+	right: 0;
+}
+.viz__axis--y {
+	top: 0;
+	left: -1.1rem;
+	transform: rotate(-90deg);
+	transform-origin: left top;
+}
+.viz__controls {
+	display: flex;
+	flex-direction: column;
+	gap: 0.7rem;
+	flex: 1 1 12rem;
+	min-width: 11rem;
+}
+.viz__slider,
+.viz__select {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	font-size: 0.78rem;
+}
+.viz__slider-label {
+	color: var(--sl-color-gray-3);
+	display: flex;
+	justify-content: space-between;
+}
+.viz__slider-label b {
+	color: var(--sl-color-text-accent);
+	font-weight: 600;
+}
+.viz__slider input[type='range'] {
+	width: 100%;
+	accent-color: #60d3c5;
+	height: 1.1rem;
+}
+.viz__select select {
+	font-family: var(--sl-font-mono);
+	font-size: 0.8rem;
+	background: var(--sl-color-bg);
+	color: var(--sl-color-text);
+	border: 1px solid var(--sl-color-hairline);
+	border-radius: 0;
+	padding: 0.3rem 0.4rem;
+}
+.viz__btn {
+	align-self: flex-start;
+	font-family: var(--sl-font-mono);
+	font-size: 0.72rem;
+	color: var(--sl-color-text);
+	background: transparent;
+	border: 1px solid var(--sl-color-hairline);
+	padding: 0.25rem 0.7rem;
+	cursor: pointer;
+}
+.viz__btn:hover {
+	border-color: var(--sl-color-gray-4);
+	color: var(--sl-color-text-accent);
+}
+.viz__formula {
+	display: block;
+	margin-top: 1rem;
+	padding-top: 0.85rem;
+	border-top: 1px solid var(--sl-color-hairline);
+	font-size: 0.95rem;
+	color: var(--sl-color-text-accent);
+	background: none;
+	border-radius: 0;
+}
+
+/* ----- ComputeGraph SVG ------------------------------------------------- */
+.cg {
+	flex: 1 1 30rem;
+	min-width: 18rem;
+	max-width: 100%;
+	height: auto;
+}
+.cg__edge {
+	stroke: var(--sl-color-gray-5);
+	stroke-width: 1.5;
+	transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+.cg__edge--active {
+	stroke: #60d3c5;
+	stroke-width: 2.5;
+}
+.cg__node {
+	fill: var(--sl-color-bg);
+	stroke: var(--sl-color-hairline);
+	stroke-width: 1;
+	transition: stroke 0.2s ease, fill 0.2s ease;
+}
+.cg__node--leaf {
+	fill: var(--sl-color-bg-nav);
+}
+.cg__node--active {
+	stroke: #60d3c5;
+	stroke-width: 2;
+}
+.cg__label {
+	fill: var(--sl-color-text-accent);
+	font-family: var(--sl-font-mono);
+	font-size: 13px;
+	font-weight: 600;
+}
+.cg__val {
+	fill: var(--sl-color-gray-3);
+	font-family: var(--sl-font-mono);
+	font-size: 12px;
+}
+.cg__grad {
+	fill: #60d3c5;
+	font-family: var(--sl-font-mono);
+	font-size: 11px;
+}
+.cg__buttons {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+.cg__caption {
+	font-size: 0.74rem;
+	color: var(--sl-color-gray-3);
+	margin: 0.25rem 0 0;
+	min-height: 1.5em;
+}
+
+/* ----- react-three-fiber stage ------------------------------------------ */
+.r3f-stage {
+	position: relative;
+	width: 100%;
+	height: 420px;
+	border: 1px solid var(--sl-color-hairline);
+	background: #0a0a0b;
+	overflow: hidden;
+	touch-action: none;
+}
+.r3f-stage canvas {
+	display: block;
+}
+.r3f-hint {
+	position: absolute;
+	bottom: 0.5rem;
+	right: 0.6rem;
+	font-size: 0.66rem;
+	color: var(--sl-color-gray-4);
+	pointer-events: none;
+	user-select: none;
+}
+.r3f-controls {
+	display: flex;
+	align-items: flex-end;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+	margin-top: 0.9rem;
+}
+
+/* ----- Notebook (on-brand multi-cell playground) ------------------------ */
+.notebook {
+	margin: 1.5rem 0;
+}
+.notebook__bar {
+	display: flex;
+	align-items: baseline;
+	gap: 0.75rem;
+	padding: 0.4rem 0.1rem 0.6rem;
+	border-bottom: 1px solid var(--sl-color-hairline);
+	font-family: var(--sl-font-mono);
+	font-size: 0.78rem;
+}
+.notebook__title {
+	color: var(--sl-color-text-accent);
+	font-weight: 600;
+}
+.notebook__title::before {
+	content: '▸ ';
+	color: var(--sl-color-gray-4);
+}
+.notebook__hint {
+	color: var(--sl-color-gray-4);
+}
+.notebook__cell {
+	position: relative;
+}
+.notebook__cell .pycell {
+	margin: 1rem 0;
+}
+.notebook__del {
+	position: absolute;
+	top: 1.35rem;
+	right: 0.4rem;
+	z-index: 2;
+	font-family: var(--sl-font-mono);
+	font-size: 0.7rem;
+	color: var(--sl-color-gray-4);
+	background: transparent;
+	border: none;
+	cursor: pointer;
+	padding: 0.2rem 0.35rem;
+}
+.notebook__del:hover {
+	color: #ff8585;
+}
+.notebook__add {
+	margin-top: 0.5rem;
+}
+
+/* ----- Playground iframe (JupyterLite) ---------------------------------- */
+.pg-frame {
+	display: block;
+	width: 100%;
+	height: 82vh;
+	min-height: 560px;
+	margin-top: 1.25rem;
+	border: 1px solid var(--sl-color-hairline);
+	background: var(--sl-color-bg-nav);
+}
+
+/* =========================================================================
+   Transformers visualizations
+   ========================================================================= */
+
+/* ----- AttentionPlayground: the attention matrix ------------------------ */
+.attn {
+	flex: 1 1 22rem;
+	min-width: 17rem;
+}
+.attn__grid {
+	display: grid;
+	gap: 2px;
+	align-items: stretch;
+}
+.attn__corner {
+	font-size: 0.6rem;
+	color: var(--sl-color-gray-4);
+	align-self: end;
+	padding-bottom: 3px;
+	text-align: center;
+}
+.attn__collabel {
+	font-size: 0.62rem;
+	color: var(--sl-color-gray-3);
+	text-align: center;
+	padding-bottom: 3px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.attn__rowlabel {
+	font-family: var(--sl-font-mono);
+	font-size: 0.62rem;
+	color: var(--sl-color-gray-3);
+	background: transparent;
+	border: none;
+	border-right: 2px solid transparent;
+	padding: 0 0.4rem 0 0;
+	text-align: right;
+	cursor: pointer;
+}
+.attn__rowlabel--active {
+	color: var(--sl-color-text-accent);
+	border-right-color: #60d3c5;
+	font-weight: 600;
+}
+.attn__cell {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 1.85rem;
+	font-family: var(--sl-font-mono);
+	font-size: 0.6rem;
+	border: 1px solid var(--sl-color-hairline-shade);
+	cursor: pointer;
+}
+.attn__cell--inrow {
+	box-shadow: inset 0 0 0 1px rgba(96, 211, 197, 0.6);
+}
+.attn__legend {
+	margin-top: 0.5rem;
+	font-size: 0.66rem;
+	color: var(--sl-color-gray-4);
+}
+.attn__legend b {
+	color: var(--sl-color-text-accent);
+	font-weight: 600;
+}
+.attn__chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.3rem;
+}
+.attn__chip {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.3rem;
+	font-family: var(--sl-font-mono);
+	font-size: 0.7rem;
+	padding: 0.15rem 0.4rem;
+	border: 1px solid var(--sl-color-hairline);
+}
+.attn__chip i {
+	font-style: normal;
+	font-size: 0.6rem;
+	opacity: 0.75;
+}
+
+/* ----- MultiHeadAttention: small multiples ------------------------------ */
+.heads {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.8rem;
+}
+.head {
+	flex: 1 1 8.5rem;
+	min-width: 8rem;
+	background: transparent;
+	border: 1px solid var(--sl-color-hairline);
+	padding: 0.6rem;
+	text-align: left;
+	cursor: default;
+	transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.head--active {
+	border-color: #60d3c5;
+	transform: translateY(-2px);
+}
+.head__title {
+	font-family: var(--sl-font-mono);
+	font-size: 0.64rem;
+	color: var(--sl-color-gray-4);
+	margin-bottom: 0.45rem;
+}
+.head__title span {
+	color: var(--sl-color-text-accent);
+}
+.head__grid {
+	display: grid;
+	gap: 1px;
+}
+.head__cell {
+	aspect-ratio: 1;
+	border: 1px solid var(--sl-color-hairline-shade);
+}
+.head__note {
+	margin-top: 0.45rem;
+	font-size: 0.62rem;
+	color: var(--sl-color-gray-4);
+}
+
+/* ----- PositionalEncoding: dimension waves ------------------------------ */
+.pe-waves {
+	width: 100%;
+	height: auto;
+	margin-top: 0.3rem;
+	border: 1px solid var(--sl-color-hairline);
+	background: var(--sl-color-bg);
+}
+.pe-waves__axis {
+	stroke: var(--sl-color-gray-5);
+	stroke-width: 1;
+}
+
+/* ----- BlockDiagram: the residual stream -------------------------------- */
+.bd {
+	flex: 0 0 auto;
+	width: 340px;
+	max-width: 100%;
+	height: auto;
+}
+.cg__stream {
+	stroke: var(--sl-color-gray-3);
+	stroke-width: 2;
+}
+.cg__node--sub {
+	fill: color-mix(in srgb, #60d3c5 13%, var(--sl-color-bg));
+	stroke: var(--sl-color-gray-4);
+}
+.cg__add {
+	fill: var(--sl-color-bg);
+	stroke: #60d3c5;
+	stroke-width: 1.5;
+}
+.cg__addsign {
+	fill: var(--sl-color-text-accent);
+	font-family: var(--sl-font-mono);
+	font-size: 13px;
+}
+.cg__sublabel {
+	fill: var(--sl-color-gray-4);
+	font-family: var(--sl-font-mono);
+	font-size: 10px;
+}
+.bd__arrhead {
+	fill: var(--sl-color-gray-3);
+}
+.bd__toggle {
+	display: flex;
+}
+.bd__toggle .viz__btn + .viz__btn {
+	margin-left: -1px;
+}
+.viz__btn--on {
+	background: var(--sl-color-text-accent);
+	color: var(--sl-color-bg);
+	border-color: var(--sl-color-text-accent);
+}
+.viz__btn--on:hover {
+	color: var(--sl-color-bg);
+}
+
+/* ----- TokenizerPlayground: live BPE tokenizer -------------------------- */
+.tok-pg__bar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1rem 1.5rem;
+	align-items: flex-end;
+	margin-bottom: 0.7rem;
+}
+.tok-pg__enc {
+	flex: 0 0 auto;
+}
+.tok-pg__enc select {
+	min-width: 16rem;
+}
+.tok-pg__toggle {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	font-family: var(--sl-font-mono);
+	font-size: 0.78rem;
+	color: var(--sl-color-gray-3);
+	cursor: pointer;
+}
+.tok-pg__toggle input {
+	accent-color: #60d3c5;
+}
+.tok-pg__input {
+	width: 100%;
+	box-sizing: border-box;
+	font-family: var(--sl-font-mono);
+	font-size: 0.85rem;
+	line-height: 1.55;
+	color: var(--sl-color-text);
+	background: var(--sl-color-bg);
+	border: 1px solid var(--sl-color-hairline);
+	border-radius: 0;
+	padding: 0.6rem 0.7rem;
+	resize: vertical;
+}
+.tok-pg__input:focus {
+	outline: none;
+	border-color: var(--sl-color-gray-4);
+}
+.tok-pg__stats {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1.2rem;
+	margin: 0.6rem 0;
+	font-family: var(--sl-font-mono);
+	font-size: 0.74rem;
+	color: var(--sl-color-gray-3);
+}
+.tok-pg__stats b {
+	color: var(--sl-color-text-accent);
+	font-weight: 600;
+}
+.tok-pg__loading {
+	color: #60d3c5;
+	animation: pycell-pulse 1.4s ease-in-out infinite;
+}
+.tok-pg__out {
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-family: var(--sl-font-mono);
+	font-size: 0.9rem;
+	line-height: 1.95;
+	border: 1px solid var(--sl-color-hairline);
+	background: var(--sl-color-bg);
+	padding: 0.7rem;
+	min-height: 3rem;
+}
+.tok-pg__tok {
+	padding: 0.12em 0;
+	box-decoration-break: clone;
+	-webkit-box-decoration-break: clone;
+}
+.tok-pg__ph {
+	opacity: 0.4;
+}
+.tok-pg__nl {
+	color: var(--sl-color-gray-4);
+}
+.tok-pg__out--ids {
+	white-space: normal;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.3rem;
+	line-height: 1.6;
+}
+.tok-pg__id {
+	font-size: 0.72rem;
+	color: var(--sl-color-gray-2);
+	border: 1px solid var(--sl-color-hairline);
+	padding: 0.05rem 0.35rem;
+}
+
+/* ----- OptimizerComparison ---------------------------------------------- */
+.opt-overlay {
+	position: absolute;
+	top: 0;
+	left: 0;
+	pointer-events: none;
+}
+.opt-start {
+	fill: none;
+	stroke: #ffffff;
+	stroke-width: 1.5;
+	opacity: 0.7;
+}
+.opt-legend {
+	list-style: none;
+	margin: 0.4rem 0 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+	font-size: 0.74rem;
+}
+.opt-legend li {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+.opt-swatch {
+	width: 0.85rem;
+	height: 0.2rem;
+	flex: 0 0 auto;
+}
+.opt-name {
+	color: var(--sl-color-text);
+	min-width: 5.5rem;
+}
+.opt-loss {
+	color: var(--sl-color-gray-3);
+	margin-left: auto;
+	font-variant-numeric: tabular-nums;
+}
+
+/* ----- NllVsMse --------------------------------------------------------- */
+.nll__panels {
+	display: flex;
+	gap: 1rem;
+	flex-wrap: wrap;
+}
+.nll {
+	flex: 1 1 18rem;
+	min-width: 15rem;
+	max-width: 100%;
+	height: auto;
+}
+.nll__axis {
+	stroke: var(--sl-color-gray-5);
+	stroke-width: 1;
+}
+.nll__axislbl {
+	fill: var(--sl-color-gray-4);
+	font-family: var(--sl-font-mono);
+	font-size: 9px;
+}
+.nll__title {
+	fill: var(--sl-color-text-accent);
+	font-family: var(--sl-font-mono);
+	font-size: 11px;
+	font-weight: 600;
+}
+.nll__guide {
+	stroke: var(--sl-color-gray-4);
+	stroke-width: 1;
+	stroke-dasharray: 3 3;
+}
+.nll__ann {
+	fill: var(--sl-color-gray-3);
+	font-family: var(--sl-font-mono);
+	font-size: 10px;
+}
+.nll__toggle {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+.nll__readout {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem 1rem;
+	margin-top: 0.85rem;
+	padding-top: 0.85rem;
+	border-top: 1px solid var(--sl-color-hairline);
+	font-family: var(--sl-font-mono);
+	font-size: 0.8rem;
+	color: var(--sl-color-gray-3);
+}
+.nll__readout b {
+	color: var(--sl-color-text-accent);
+	font-variant-numeric: tabular-nums;
+}
+.nll__key {
+	font-weight: 600;
+}

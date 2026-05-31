@@ -1,0 +1,109 @@
+---
+title: 'Loss Functions: NLL vs MSE'
+description: Why classification trains on negative log-likelihood rather than squared error — the vanishing-gradient phenomenon, illustrated and executed.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import NllVsMse from '../../../components/viz/NllVsMse';
+import PyCell from '../../../components/python/PyCell';
+
+For a classifier that outputs a probability $p = \sigma(z)$ for the label $y \in
+\{0, 1\}$, the error may be measured in two ways:
+
+$$
+L_{\text{MSE}} = (p - y)^2,
+\qquad
+L_{\text{NLL}} = -\big[\,y \ln p + (1 - y)\ln(1 - p)\,\big].
+$$
+
+Both vanish when $p = y$ and increase as $p$ departs from it. They may appear
+interchangeable, yet they train in markedly different ways, and the cause is the
+**gradient**, not the loss value.
+
+## The gradient is decisive
+
+Learning adjusts the logit $z$, so the relevant quantity is $\partial L /
+\partial z$. Using $\partial p / \partial z = p(1-p)$, we obtain:
+
+$$
+\frac{\partial L_{\text{NLL}}}{\partial z} = p - y,
+\qquad
+\frac{\partial L_{\text{MSE}}}{\partial z} = 2\,(p - y)\,p\,(1 - p).
+$$
+
+The NLL gradient is precisely the **error** $p - y$ — largest exactly when the
+prediction is most incorrect. The MSE gradient carries an additional $p(1-p)$
+factor that approaches **zero** whenever the sigmoid saturates ($p \to 0$ or $p
+\to 1$) — *even when the prediction is confidently incorrect*. A unit fixed at $p
+= 0.01$ with true label $y = 1$ receives almost no MSE gradient with which to
+correct itself.
+
+## The collapse of the gradient
+
+The left panel shows the loss; the right panel shows the gradient magnitude.
+Dragging the prediction $p$ toward the incorrect extreme and flipping the true
+label demonstrates that the amber MSE gradient flattens to nothing while the teal
+NLL gradient remains strong.
+
+<NllVsMse client:visible />
+
+This is the central argument: NLL preserves a strong learning signal precisely
+where it is most needed, and therefore pairs with the sigmoid and softmax to yield
+the clean $p - y$ update. (It is moreover the
+[negative log-likelihood](/divergences/kl-forward-reverse/) of the data, so
+minimizing it *is* maximum likelihood.)
+
+## The stalling of MSE
+
+The same model, data, and unfavourable starting point are used; only the loss
+differs. NLL (here, binary cross-entropy) escapes, whereas MSE scarcely moves
+because its gradient has vanished:
+
+<PyCell
+	client:only="react"
+	id="nn-nll-vs-mse"
+	title="loss_functions.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(0)
+# two clusters: label 1 around x=+2, label 0 around x=-2
+X = np.r_[rng.normal(2, 0.6, 80), rng.normal(-2, 0.6, 80)]
+Y = np.r_[np.ones(80), np.zeros(80)]
+sigmoid = lambda z: 1 / (1 + np.exp(-z))
+
+def train(loss, steps=300, lr=0.5):
+    w, b, hist = -4.0, 0.0, []          # deliberately backwards init
+    for _ in range(steps):
+        p = sigmoid(w * X + b)
+        if loss == "nll":
+            dz = p - Y                   # clean error signal
+        else:
+            dz = 2 * (p - Y) * p * (1 - p)   # MSE through the sigmoid
+        w -= lr * np.mean(dz * X)
+        b -= lr * np.mean(dz)
+        hist.append(np.mean((p > 0.5) != Y))   # training error rate
+    return hist
+
+for loss in ("nll", "mse"):
+    h = train(loss)
+    plt.plot(h, label=f"{loss.upper()}  (final error {h[-1]:.0%})")
+    print(f"{loss.upper()}: error {h[0]:.0%} -> {h[-1]:.0%}")
+
+plt.xlabel("step"); plt.ylabel("training error"); plt.ylim(-0.02, 0.6)
+plt.title("same bad init: NLL escapes, MSE stalls"); plt.legend(); plt.grid(alpha=0.3)
+`}
+/>
+
+<Aside type="note" title="The analogous result for softmax">
+	The preceding analysis generalizes: for multi-class problems, **softmax +
+	cross-entropy** yields the identical clean gradient $\hat p - y$ (predicted minus
+	one-hot truth), whereas squared error on softmax outputs saturates in the same
+	manner. Squared error is appropriate for *regression* (real-valued targets), and
+	cross-entropy for *classification*.
+</Aside>
+
+## References
+
+- Bridle (1990). *Probabilistic Interpretation of Feedforward Classification Network Outputs, with Relationships to Statistical Pattern Recognition* (the softmax). Neurocomputing (NATO ASI Series). [doi:10.1007/978-3-642-76153-9_28](https://doi.org/10.1007/978-3-642-76153-9_28)
+- Fisher (1922). *On the Mathematical Foundations of Theoretical Statistics* (maximum likelihood). Philosophical Transactions of the Royal Society A. [doi:10.1098/rsta.1922.0009](https://doi.org/10.1098/rsta.1922.0009)

@@ -1,0 +1,159 @@
+---
+title: Rotary Position Encoding
+description: RoPE injects position by rotating queries and keys, so that relative position emerges exactly inside the attention dot product — the scheme used in most current LLMs.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import RotaryEncoding from '../../../components/viz/RotaryEncoding';
+import PyCell from '../../../components/python/PyCell';
+
+The [sinusoidal scheme](/transformers/positional-encoding/) injects order by *adding* a
+position vector to each token at the input. That signal must then survive every subsequent
+projection and propagate, undiminished, through the residual stream to reach the attention
+scores. **Rotary position embedding** (RoPE) takes the opposite route: rather than telling each
+token where it is, it makes the *comparison between two tokens* depend on how far apart they
+are. Position is never added to the residual stream at all — it is applied directly to the
+queries and keys, at the moment they are compared.
+
+## Rotating pairs of dimensions
+
+Group the $d$ coordinates of a query into $d/2$ consecutive pairs and read each pair as a point
+in a plane. RoPE rotates the $k$-th pair of a token at position $m$ by the angle $m\theta_k$,
+where the frequencies form the same geometric series as the sinusoids,
+
+$$
+R(\phi) = \begin{pmatrix} \cos\phi & -\sin\phi \\ \sin\phi & \cos\phi \end{pmatrix},
+\qquad
+\theta_k = b^{-2k/d}, \quad b = 10000.
+$$
+
+Stacking these planar rotations gives a block-diagonal orthogonal matrix that acts on the whole
+vector at once:
+
+$$
+R_m^{d} = \operatorname{diag}\!\big(R(m\theta_0),\, R(m\theta_1),\, \dots,\, R(m\theta_{d/2-1})\big),
+\qquad
+\tilde{\mathbf{q}}_m = R_m^{d}\,\mathbf{q}_m, \quad \tilde{\mathbf{k}}_n = R_n^{d}\,\mathbf{k}_n.
+$$
+
+Low pairs ($k$ small, $\theta_k \approx 1$) turn quickly with position; high pairs turn slowly —
+the same multi-resolution clock as before. Because each block is a rotation, $R_m^{d}$ is
+**orthogonal**: $(R_m^{d})^{\top} R_m^{d} = I$, so the operation preserves every vector's length
+and alters only its direction.
+
+## Relative position falls out of the dot product
+
+The merit of a rotation is what it does inside an inner product. The score between a query at
+position $m$ and a key at position $n$ is
+
+$$
+\langle R_m^{d}\,\mathbf{q},\; R_n^{d}\,\mathbf{k} \rangle
+= \mathbf{q}^{\top} (R_m^{d})^{\top} R_n^{d}\, \mathbf{k}
+= \mathbf{q}^{\top} R_{n-m}^{d}\, \mathbf{k},
+$$
+
+since $R(\alpha)^{\top} R(\beta) = R(\beta - \alpha)$ block by block. The absolute positions $m$
+and $n$ have cancelled: the score depends on the content $\mathbf{q}, \mathbf{k}$ and on the
+**relative offset** $n - m$, and on nothing else. Where the sinusoidal encoding made relative
+position *recoverable* by a learned linear map, RoPE makes it **exact**, parameter-free, and
+intrinsic to the comparison itself.
+
+The figure isolates one such pair. A query and a key sit at fixed content directions; RoPE turns
+the query by $m\theta$ and the key by $n\theta$. Slide **position** to move both tokens together
+and the two arrows rotate in lockstep — the angle between them, and hence the score, does not
+move. Slide **offset** and the angle opens, sweeping the score along the curve below.
+
+<RotaryEncoding client:visible />
+
+<Aside type="note" title="Reapplied at every layer">
+	Additive encoding enters once, at the embedding. RoPE instead rotates $Q$ and $K$ afresh
+	inside *every* attention layer, within each head's $d_k$-dimensional subspace, so positional
+	information can never be diluted away by intervening computation — it is reasserted at the
+	point of every comparison. The values $V$ are left untouched; only the *matching* is made
+	position-aware, never the content that is retrieved.
+</Aside>
+
+## An efficient implementation
+
+The block-diagonal matrix is never formed. Each pair is rotated with two multiplications and an
+addition,
+
+$$
+\tilde{x}_{2k} = x_{2k}\cos m\theta_k - x_{2k+1}\sin m\theta_k,
+\qquad
+\tilde{x}_{2k+1} = x_{2k}\sin m\theta_k + x_{2k+1}\cos m\theta_k,
+$$
+
+which vectorizes to $\tilde{\mathbf{x}} = \mathbf{x} \odot \cos(m\boldsymbol{\theta}) +
+\operatorname{rot}(\mathbf{x}) \odot \sin(m\boldsymbol{\theta})$, where $\operatorname{rot}$ swaps
+and negates the two halves of each pair. The following builds it from scratch, then confirms the
+defining property numerically: holding the offset fixed while sliding the absolute position
+leaves the score exactly unchanged, and the rotation preserves the norm.
+
+<PyCell
+	client:only="react"
+	id="tf-rope"
+	title="rotary.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+def rope(x, pos, base=10000.0):
+    # Rotate each 2-D pair (x[2k], x[2k+1]) of every row by pos * theta_k, with
+    # theta_k = base^(-2k/d): the same geometric frequencies as the sinusoidal
+    # encoding, applied as a rotation of the query/key rather than an addition.
+    T, d = x.shape
+    k = np.arange(d // 2)
+    theta = base ** (-2.0 * k / d)            # (d/2,) angular frequencies
+    ang = pos[:, None] * theta[None, :]       # (T, d/2) rotation angles
+    cos, sin = np.cos(ang), np.sin(ang)
+    pairs = x.reshape(T, d // 2, 2)
+    even, odd = pairs[..., 0], pairs[..., 1]
+    rot = np.stack([even * cos - odd * sin, even * sin + odd * cos], axis=-1)
+    return rot.reshape(T, d)
+
+rng = np.random.default_rng(0)
+d = 32
+q = rng.normal(size=d)
+k = q + 0.35 * rng.normal(size=d)             # a key correlated with the query
+
+def score(m, n):                              # place q at m, k at n, then dot
+    Q, K = rope(q[None, :], np.array([m])), rope(k[None, :], np.array([n]))
+    return float((Q @ K.T)[0, 0])
+
+print("fixed offset, sliding absolute position -> the score is unchanged:")
+for m in (0, 5, 10, 20):
+    print(f"   m={m:2d}  n={m+4:2d}  (offset 4)   q.k = {score(m, m+4):+.4f}")
+
+print("norm preserved (rotation is orthogonal):",
+      bool(np.allclose(np.linalg.norm(rope(q[None, :], np.array([7]))),
+                       np.linalg.norm(q))))
+
+offs = np.arange(0, 64)                        # score as a function of offset only
+s = [score(0, o) for o in offs]
+fig, ax = plt.subplots(figsize=(6.2, 3.1))
+ax.plot(offs, s, color="#2a9d8f")
+ax.axhline(0, color="gray", lw=0.6)
+ax.set_xlabel("relative offset  n - m"); ax.set_ylabel("q . k  after RoPE")
+ax.set_title("the score is a function of the offset alone")
+ax.grid(alpha=0.3); fig.tight_layout()
+`}
+/>
+
+<Aside type="tip" title="Stretching the context window">
+	Because the range of positions a model can resolve is fixed by the base $b$, the effective
+	context can be extended *after* training by rescaling the positions or the base — **position
+	interpolation**, **NTK-aware** scaling, and **YaRN**. A model trained at one length can thereby
+	be made to attend coherently over a longer one with little or no retraining. This post-hoc
+	tunability, together with the exact relative encoding above, is why RoPE is found in most
+	current large language models.
+</Aside>
+
+With order restored — by addition or by rotation — every component is in hand. They assemble into
+the unit that, stacked, *constitutes* the model: [the transformer block](/transformers/transformer-block/).
+
+## References
+
+- Vaswani et al. (2017). *Attention Is All You Need*. NeurIPS 2017. [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)
+- Su et al. (2021). *RoFormer: Enhanced Transformer with Rotary Position Embedding* (RoPE). Neurocomputing. [arXiv:2104.09864](https://arxiv.org/abs/2104.09864)
+- Chen et al. (2023). *Extending Context Window of Large Language Models via Positional Interpolation*. [arXiv:2306.15595](https://arxiv.org/abs/2306.15595)
+- Peng et al. (2023). *YaRN: Efficient Context Window Extension of Large Language Models*. ICLR 2024. [arXiv:2309.00071](https://arxiv.org/abs/2309.00071)

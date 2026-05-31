@@ -1,0 +1,155 @@
+---
+title: The Transformer Block
+description: Assembling attention, a feed-forward network, residual connections, and layer normalization into the unit that, stacked, becomes a transformer.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import BlockDiagram from '../../../components/viz/BlockDiagram';
+import PyCell from '../../../components/python/PyCell';
+
+All of the components are now available. A **transformer block** combines them into a single, repeatable
+unit: multi-head self-attention to move information *between* positions, a
+feed-forward network to process *each* position, and two pieces of connective
+machinery — residual connections and layer normalization — that render deep stacks
+trainable.
+
+## The feed-forward network
+
+Attention mixes information across the sequence but applies no per-token nonlinearity of its
+own. This is the role of the FFN: an MLP applied **independently and identically** to
+every position,
+
+$$
+\operatorname{FFN}(\mathbf{x}) = W_2\,\phi(W_1 \mathbf{x} + \mathbf{b}_1) + \mathbf{b}_2,
+$$
+
+typically widening to $4d$ in the middle ($W_1 \in \mathbb{R}^{d \times 4d}$) before
+projecting back, with $\phi$ a **GELU** or ReLU. The majority of a
+transformer's parameters reside here; it is the network's per-position computational step.
+
+## Residuals and LayerNorm
+
+Two ideas, both carried over from the [neural-network track](/neural-networks/the-neuron/),
+make depth tractable.
+
+A **residual connection** adds each sublayer's output back to its input rather than
+replacing it: $\mathbf{x} + \operatorname{Sublayer}(\mathbf{x})$. The residual
+stream thereby becomes an identity path along which gradients propagate undiminished — the
+same mechanism that enabled ResNets to reach hundreds of layers in depth.
+
+**Layer normalization** stabilizes the scale of activations by normalizing across
+the feature dimension, per token:
+
+$$
+\operatorname{LN}(\mathbf{x}) = \gamma \odot \frac{\mathbf{x} - \mu}{\sqrt{\sigma^2 + \epsilon}} + \beta,
+\qquad
+\mu = \tfrac{1}{d}\sum_k x_k,\;\; \sigma^2 = \tfrac{1}{d}\sum_k (x_k - \mu)^2,
+$$
+
+with learned gain $\gamma$ and bias $\beta$. Combining these elements, the modern
+**pre-LN** block normalizes *before* each sublayer and adds the raw result back:
+
+$$
+\mathbf{x} \leftarrow \mathbf{x} + \operatorname{MHA}(\operatorname{LN}(\mathbf{x})),
+\qquad
+\mathbf{x} \leftarrow \mathbf{x} + \operatorname{FFN}(\operatorname{LN}(\mathbf{x})).
+$$
+
+## The block as a residual stream
+
+The diagram clarifies its structure: a central path carrying $X$ straight
+through, with two sublayers, each reading a normalized copy, computing an update,
+and adding it back. Toggling between **Pre-LN** (the current default) and **Post-LN**
+(the original 2017 placement) shows where the normalization is positioned:
+
+<BlockDiagram client:visible />
+
+The pre-LN arrangement keeps the residual path a pure identity — nothing between
+the input at the top and the output at the bottom but additions — which is precisely
+why very deep stacks train stably without carefully tuned learning-rate warm-up.
+
+## Building the complete block
+
+The following is a complete pre-LN block in NumPy — LayerNorm, multi-head attention, a GELU
+feed-forward network, and both residuals — stacked six deep. Every sublayer preserves
+the residual stream's $(T, d)$ shape, so the blocks compose with nothing required in
+between:
+
+<PyCell
+	client:only="react"
+	id="tf-block"
+	title="transformer_block.py"
+	code={`import numpy as np
+rng = np.random.default_rng(2)
+
+def softmax(S):
+    S = S - S.max(-1, keepdims=True)
+    e = np.exp(S)
+    return e / e.sum(-1, keepdims=True)
+
+def layernorm(x, g, b, eps=1e-5):
+    mu = x.mean(-1, keepdims=True)
+    var = x.var(-1, keepdims=True)
+    return g * (x - mu) / np.sqrt(var + eps) + b
+
+def gelu(x):
+    return 0.5 * x * (1 + np.tanh(np.sqrt(2 / np.pi) * (x + 0.044715 * x**3)))
+
+def mha(x, P, h):
+    T, d = x.shape; dk = d // h
+    Q = (x @ P["Wq"]).reshape(T, h, dk).transpose(1, 0, 2)
+    K = (x @ P["Wk"]).reshape(T, h, dk).transpose(1, 0, 2)
+    V = (x @ P["Wv"]).reshape(T, h, dk).transpose(1, 0, 2)
+    A = softmax(Q @ K.transpose(0, 2, 1) / np.sqrt(dk))
+    ctx = (A @ V).transpose(1, 0, 2).reshape(T, d)
+    return ctx @ P["Wo"]
+
+def ffn(x, P):
+    return gelu(x @ P["W1"] + P["b1"]) @ P["W2"] + P["b2"]
+
+def block(x, P, h):                       # one pre-LN transformer block
+    x = x + mha(layernorm(x, P["g1"], P["c1"]), P, h)
+    x = x + ffn(layernorm(x, P["g2"], P["c2"]), P)
+    return x
+
+T, d, h = 6, 32, 4
+def init():
+    n = lambda *s: rng.normal(size=s) / np.sqrt(s[0])
+    return {"Wq": n(d, d), "Wk": n(d, d), "Wv": n(d, d), "Wo": n(d, d),
+            "W1": n(d, 4*d), "b1": np.zeros(4*d), "W2": n(4*d, d), "b2": np.zeros(d),
+            "g1": np.ones(d), "c1": np.zeros(d), "g2": np.ones(d), "c2": np.zeros(d)}
+
+x = rng.normal(size=(T, d))               # embeddings + positional encoding
+for layer in range(6):                    # stack 6 blocks
+    x = block(x, init(), h)
+
+print("ran 6 transformer blocks")
+print("residual stream shape preserved:", x.shape == (T, d), "->", x.shape)
+print("output norm per token:", np.round(np.linalg.norm(x, axis=1), 2))
+`}
+/>
+
+<Aside type="note" title="This is the entire architecture">
+	Stacking $N$ of these blocks, adding the [embedding](/transformers/tokens-and-embeddings/)
+	layer at the bottom and a linear "unembedding" to vocabulary logits at the top,
+	yields a GPT. The differences between a toy and a frontier model are the width
+	$d$, the depth $N$, the number of heads, and the quantity of data — not the design
+	developed here.
+</Aside>
+
+This completes the track. Every component of a
+transformer has been assembled from scratch: the [embedding lookup](/transformers/tokens-and-embeddings/),
+[scaled dot-product attention](/transformers/attention/),
+[multiple heads](/transformers/multi-head-attention/),
+[positional encoding](/transformers/positional-encoding/) — additive or
+[rotary](/transformers/rotary-position-encoding/) — and the residual block
+that binds them. Any cell may be carried into the [Playground](/playground/) for further exploration.
+
+## References
+
+- Vaswani et al. (2017). *Attention Is All You Need* (the transformer block; post-LN). NeurIPS 2017. [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)
+- He et al. (2016). *Deep Residual Learning for Image Recognition* (residual connections / ResNet). CVPR 2016. [arXiv:1512.03385](https://arxiv.org/abs/1512.03385)
+- Ba, Kiros & Hinton (2016). *Layer Normalization*. [arXiv:1607.06450](https://arxiv.org/abs/1607.06450)
+- Xiong et al. (2020). *On Layer Normalization in the Transformer Architecture* (pre-LN). ICML 2020. [arXiv:2002.04745](https://arxiv.org/abs/2002.04745)
+- Hendrycks & Gimpel (2016). *Gaussian Error Linear Units (GELUs)*. [arXiv:1606.08415](https://arxiv.org/abs/1606.08415)
+- Radford et al. (2018). *Improving Language Understanding by Generative Pre-Training* (GPT). OpenAI technical report. [openai.com](https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf)

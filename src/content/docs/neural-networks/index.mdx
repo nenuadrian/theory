@@ -1,0 +1,48 @@
+---
+title: Neural Networks
+description: Constructing a neural network from a single neuron up to a trained classifier, with backpropagation derived by hand.
+---
+
+import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+
+This track constructs a neural network from first principles. We begin with a
+single **neuron**, compose neurons into a **network**, then derive the algorithm
+by which it learns — **backpropagation** — and observe it train, entirely within
+the browser.
+
+## The path
+
+<CardGrid>
+	<Card title="01 · The Neuron" icon="seti:default">
+		[A weighted sum and a nonlinearity.](/neural-networks/the-neuron/) The
+		smallest unit of computation in a network.
+	</Card>
+	<Card title="02 · The Forward Pass" icon="seti:default">
+		[From a single neuron to layers.](/neural-networks/forward-pass/) Activation
+		functions and the propagation of a signal forward.
+	</Card>
+	<Card title="03 · Backpropagation" icon="seti:default">
+		[How a network assigns credit.](/neural-networks/backpropagation/) The chain
+		rule applied systematically over a computational graph.
+	</Card>
+	<Card title="04 · Gradient Descent" icon="seti:default">
+		[Translating gradients into learning.](/neural-networks/gradient-descent/)
+		Descent along the loss surface, in three dimensions.
+	</Card>
+</CardGrid>
+
+## What this track produces
+
+By its conclusion, the reader will have trained a small multi-layer perceptron to
+separate two interleaving spirals — implemented from scratch in NumPy, with every
+gradient verified against an automatic-differentiation engine.
+
+<Aside type="note">
+	The prerequisites are modest: familiarity with vectors and derivatives. All
+	remaining material is re-derived as it is needed.
+</Aside>
+
+## References
+
+- Rosenblatt (1958). *The Perceptron: A Probabilistic Model for Information Storage and Organization in the Brain*. Psychological Review. [doi:10.1037/h0042519](https://doi.org/10.1037/h0042519)
+- Rumelhart, Hinton & Williams (1986). *Learning representations by back-propagating errors*. Nature. [doi:10.1038/323533a0](https://doi.org/10.1038/323533a0)

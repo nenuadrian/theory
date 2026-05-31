@@ -1,0 +1,101 @@
+---
+title: Divergences
+description: Measuring the gap between two distributions, and why a divergence is deliberately weaker, and considerably more useful, than a distance.
+---
+
+import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+
+Consider the question of how far one distribution lies from another. In many
+settings a true *distance* is not what is required; what is required instead is a
+**divergence**: a number that is zero when the two distributions agree and grows
+as they separate, yet which is permitted to break the rules a metric must obey.
+
+A divergence $D(p \,\|\, q)$ is required to satisfy only two conditions:
+
+$$
+D(p \,\|\, q) \ge 0, \qquad D(p \,\|\, q) = 0 \iff p = q.
+$$
+
+It is non-negative, and it is zero precisely when its arguments coincide. These
+two conditions constitute the entire contract.
+
+## Not a distance
+
+A metric $d$ guarantees two further properties that a divergence does **not**:
+
+- **Symmetry.** A metric guarantees $d(p, q) = d(q, p)$. A divergence does not:
+  in general $D(p \,\|\, q) \neq D(q \,\|\, p)$. For this reason the two
+  arguments are written with a bar $\|$ between them and never a comma; the
+  notation serves as a standing reminder that *order matters*.
+- **The triangle inequality.** A metric guarantees $d(p, r) \le d(p, q) + d(q,
+  r)$. Divergences routinely violate it, so proximity to a third distribution
+  conveys little.
+
+These two metric axioms are precisely what impose a *geometry* of straight lines
+and shortest paths, and the natural ways to compare distributions — information
+lost, likelihood assigned, surprise incurred — are not symmetric. Encoding a
+message built for $q$ using the true distribution $p$ costs a different number of
+bits than the reverse. The divergence faithfully reflects this asymmetry, whereas
+insisting on symmetry would discard it.
+
+<Aside type="note" title="Reading the bar">
+	$D(p \,\|\, q)$ is read "the divergence **from** $q$ **to** $p$", or "of $p$
+	with respect to $q$". By near-universal convention the first slot holds the
+	*reference* or *true* distribution and the second the *approximation*. Because
+	conventions vary, one should always confirm which argument occupies which slot.
+</Aside>
+
+## The role of divergences in machine learning
+
+Divergences serve as the loss functions of probabilistic modeling. Nearly every
+time a model is fit to data or to another model, some divergence is being
+minimized:
+
+- **Maximum likelihood** minimizes a *forward* KL between the data and the model.
+- **Variational inference** and the ELBO minimize a *reverse* KL.
+- **Mirror descent** and exponential-family clustering are built on **Bregman**
+  divergences.
+- **GANs** and many two-sample tests are framed through **f-divergences**.
+
+Once the divergence — and its *direction* — has been chosen correctly, the
+learning algorithm frequently follows in a nearly mechanical fashion.
+
+## Two families
+
+Almost every divergence encountered in practice belongs to one of two families,
+each generated from a single convex function:
+
+| family | built from | examples |
+| :-- | :-- | :-- |
+| **Bregman** | a convex potential $\varphi$, via its tangent | squared error, KL, Itakura–Saito, Mahalanobis |
+| **f-divergence** | a convex $f$ applied to the ratio $p/q$ | KL, total variation, $\chi^2$, Hellinger |
+
+The **KL divergence belongs to both families** — it is the Bregman
+divergence of negative entropy *and* the f-divergence of $f(t) = t\ln t$. This
+dual membership, together with its asymmetry, makes it the natural starting
+point for closer study.
+
+<CardGrid>
+	<Card title="Bregman divergences" icon="seti:default">
+		[One convex function generates an entire family of divergences.](/divergences/bregman/)
+		The divergence is the gap above a tangent line; an interactive figure varies
+		two points to display it.
+	</Card>
+	<Card title="KL: forward vs reverse" icon="seti:default">
+		[The same formula, run in two directions, yields opposite behavior.](/divergences/kl-forward-reverse/)
+		Mode-covering versus mode-seeking, illustrated by fitting one Gaussian to two.
+	</Card>
+	<Card title="Fisher information" icon="seti:default">
+		[The infinitesimal limit of KL — the metric on distribution space.](/divergences/fisher-information/)
+		It is computed neuron by neuron, after which the natural gradient it defines
+		proceeds smoothly where plain SGD diverges.
+	</Card>
+</CardGrid>
+
+## References
+
+- Kullback & Leibler (1951). *On Information and Sufficiency*. Annals of Mathematical Statistics. [doi:10.1214/aoms/1177729694](https://doi.org/10.1214/aoms/1177729694)
+- Bregman (1967). *The relaxation method of finding the common point of convex sets and its application to the solution of problems in convex programming*. USSR Computational Mathematics and Mathematical Physics. [doi:10.1016/0041-5553(67)90040-7](https://doi.org/10.1016/0041-5553%2867%2990040-7)
+- Csiszár (1967). *Information-type measures of difference of probability distributions and indirect observations*. Studia Scientiarum Mathematicarum Hungarica.
+- Ali & Silvey (1966). *A General Class of Coefficients of Divergence of One Distribution from Another*. Journal of the Royal Statistical Society: Series B. [doi:10.1111/j.2517-6161.1966.tb00626.x](https://doi.org/10.1111/j.2517-6161.1966.tb00626.x)
+- Goodfellow et al. (2014). *Generative Adversarial Nets*. NeurIPS 2014. [arXiv:1406.2661](https://arxiv.org/abs/1406.2661)

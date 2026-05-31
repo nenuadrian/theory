@@ -1,0 +1,256 @@
+---
+title: Policy Gradients
+description: The log-derivative trick, the policy gradient theorem, REINFORCE, baselines, and actor-critic — differentiating an expectation over actions.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import PyCell from '../../../components/python/PyCell';
+
+We aim to maximize $J(\theta) = \mathbb{E}_{\tau \sim p_\theta}[R(\tau)]$ by
+gradient ascent, where $R(\tau) = \sum_t \gamma^t r_t$. The difficulty is that
+$\theta$ controls the *distribution being averaged over*, not merely the
+integrand. The gradient cannot be moved through an expectation whose sampling
+distribution depends on $\theta$ without further work.
+
+## The log-derivative trick
+
+The resolution is a single line of algebra that recurs throughout machine
+learning. For any distribution $p_\theta(x)$ and function $f$,
+
+$$
+\nabla_\theta\, \mathbb{E}_{x \sim p_\theta}[f(x)]
+= \int f(x)\, \nabla_\theta p_\theta(x)\, dx
+= \int f(x)\, p_\theta(x)\, \nabla_\theta \log p_\theta(x)\, dx
+= \mathbb{E}_{x \sim p_\theta}\!\big[\, f(x)\, \nabla_\theta \log p_\theta(x) \,\big].
+$$
+
+The middle step uses $\nabla_\theta p = p\, \nabla_\theta \log p$. The
+consequence is that the gradient is *itself an expectation*, so it can be
+estimated by sampling, and only $\log p_\theta$ need be differentiated, never
+$f$.
+
+Applying this to trajectories, recall that $\log p_\theta(\tau) = \log
+\rho_0(s_0) + \sum_t \big[\log \pi_\theta(a_t \mid s_t) + \log P(s_{t+1} \mid s_t,
+a_t)\big]$. The start and transition terms do not depend on $\theta$, so they
+**drop out** of the gradient:
+
+$$
+\nabla_\theta \log p_\theta(\tau) = \sum_{t} \nabla_\theta \log \pi_\theta(a_t \mid s_t).
+$$
+
+This is the point at which RL becomes **model-free**: the dynamics $P$ need never
+be known or differentiated. It suffices to sample from the environment and
+differentiate the policy itself.
+
+## The policy gradient theorem
+
+Combining the two results gives the **REINFORCE** estimator:
+
+$$
+\nabla_\theta J(\theta)
+= \mathbb{E}_{\tau \sim p_\theta}\!\left[\, R(\tau) \sum_{t} \nabla_\theta \log \pi_\theta(a_t \mid s_t) \,\right].
+$$
+
+This may be read as a weighted vote: each action's $\nabla_\theta \log
+\pi_\theta(a_t \mid s_t)$ (the *score* — the direction in parameter space that
+makes $a_t$ more likely) is scaled by the total reward the trajectory obtained.
+High-reward trajectories make their actions more probable; low-reward
+trajectories make theirs less probable.
+
+One immediate refinement follows from the observation that an action at time $t$
+cannot influence rewards in the past. Discarding those terms — retaining only the
+**reward-to-go** $G_t$ — leaves the gradient unbiased while reducing its
+variance:
+
+$$
+\nabla_\theta J(\theta) = \mathbb{E}\!\left[\, \sum_{t} \nabla_\theta \log \pi_\theta(a_t \mid s_t)\, G_t \,\right].
+$$
+
+## Baselines and the advantage
+
+REINFORCE is correct but exhibits high variance: returns vary considerably from
+episode to episode, and the gradient estimate inherits that variability. The most
+important variance reduction is to subtract a **baseline** $b(s_t)$ that does not
+depend on the action:
+
+$$
+\nabla_\theta J(\theta) = \mathbb{E}\!\left[\, \sum_{t} \nabla_\theta \log \pi_\theta(a_t \mid s_t)\, \big(G_t - b(s_t)\big) \,\right].
+$$
+
+This remains **unbiased** for *any* such $b$, because the score has zero mean
+under the policy:
+
+$$
+\mathbb{E}_{a \sim \pi_\theta}\!\big[\nabla_\theta \log \pi_\theta(a \mid s)\big]
+= \sum_a \pi_\theta(a\mid s)\, \frac{\nabla_\theta \pi_\theta(a \mid s)}{\pi_\theta(a \mid s)}
+= \nabla_\theta \sum_a \pi_\theta(a \mid s) = \nabla_\theta 1 = 0.
+$$
+
+The natural choice is $b(s) = V^\pi(s)$, which converts the weight into the
+**advantage** from [the setup](/reinforcement-learning/the-setup/):
+
+$$
+\nabla_\theta J(\theta) = \mathbb{E}\!\left[\, \sum_{t} \nabla_\theta \log \pi_\theta(a_t \mid s_t)\, A^\pi(s_t, a_t) \,\right].
+$$
+
+The sign now has a clear interpretation: above-average actions ($A > 0$) are
+made more probable, below-average actions ($A < 0$) less probable, and the
+magnitude reflects how much better than average the action is, rather than the
+size of the raw return.
+
+## Actor-critic and GAE
+
+Since $A^\pi$ is unknown, it must be estimated. A **critic** $V_\phi(s)$ is
+learned (by regressing it toward observed returns) alongside the **actor**
+$\pi_\theta$. The simplest advantage estimate is the one-step **TD error**:
+
+$$
+\delta_t = r_t + \gamma V_\phi(s_{t+1}) - V_\phi(s_t) \;\approx\; A^\pi(s_t, a_t).
+$$
+
+Using $\delta_t$ yields low variance but is biased, as it relies on the critic;
+using the full return $G_t - V_\phi(s_t)$ is unbiased but has high variance.
+**Generalized Advantage Estimation** (GAE) interpolates between them with a
+single parameter $\lambda \in [0, 1]$:
+
+$$
+\hat{A}_t^{\mathrm{GAE}(\gamma, \lambda)} = \sum_{l=0}^{\infty} (\gamma \lambda)^l\, \delta_{t+l}.
+$$
+
+At $\lambda = 0$ it reduces to the one-step TD error; at $\lambda = 1$ it
+recovers the full Monte-Carlo advantage. This $\hat{A}_t$ is the advantage
+estimate that PPO and most modern policy-gradient methods supply to the update.
+
+## The deterministic policy gradient
+
+Everything above differentiates a *stochastic* policy through its log-probability:
+$\theta$ enters only through the distribution the action is drawn from, and the score
+$\nabla_\theta \log \pi_\theta$ is the sole point at which the gradient touches the
+policy. A second route applies when the policy is **deterministic**, $a = \mu_\theta(s)$
+— a point rather than a distribution. This is the natural form in continuous action
+spaces, where the alternative, $\arg\max_a Q(s, a)$, is itself an optimization at every
+step.
+
+With no distribution over actions to average, the objective is taken over the discounted
+state-visitation distribution $\rho^\mu$ induced by $\mu_\theta$,
+
+$$
+J(\theta) = \mathbb{E}_{s \sim \rho^\mu}\!\big[\, Q^\mu\big(s, \mu_\theta(s)\big) \,\big],
+$$
+
+and its gradient follows from the ordinary chain rule, threading $\theta$ through the
+action and into the critic's dependence on it:
+
+$$
+\nabla_\theta J(\theta)
+= \mathbb{E}_{s \sim \rho^\mu}\!\Big[\, \nabla_\theta \mu_\theta(s)\; \nabla_a Q^\mu(s, a)\big|_{a = \mu_\theta(s)} \,\Big].
+$$
+
+This is the **deterministic policy gradient** (Silver et al., 2014), and the contrast
+with REINFORCE is structural. There is no score and no expectation over actions; the
+update is not a return-weighted vote but a direct push on the action in the direction
+$\nabla_a Q$ that the critic reports as improving, backpropagated into the parameters
+through $\nabla_\theta \mu_\theta$. The price is that it requires a *differentiable*
+critic $Q^\mu$, so it is inherently an actor-critic method: the actor ascends the
+critic's action-gradient while the critic is fit to the actor's behavior.
+
+Two consequences follow. Because the state distribution $\rho^\mu$ need not be generated
+by the current policy, the deterministic gradient is **off-policy** — states may be
+replayed from a buffer filled by an exploratory behavior policy, which the on-policy
+score-function estimator cannot do. And removing the action-sampling noise removes a
+large source of variance, at the cost of a bias that now resides entirely in the critic.
+This is the basis of **DDPG** and, with its value overestimation corrected, **TD3**. It
+is not a phenomenon separate from the stochastic gradient but its zero-noise limit: as
+the variance of a Gaussian policy is sent to zero, the stochastic policy gradient
+converges to the deterministic one.
+
+The remainder of this track follows the stochastic, on-policy line.
+
+## See the baseline work
+
+Consider the score-function estimator on a 10-armed bandit with a `softmax`
+policy. Every arm's reward is centered around **+5**. This offset carries no
+information about *which* arm is best, since it is common to all of them, yet
+without a baseline it multiplies into every gradient estimate as noise. We draw
+many one-sample estimates at a fixed policy and examine the best arm's gradient
+component, **with and without** a baseline equal to the mean reward:
+
+<PyCell
+	client:only="react"
+	id="pg-reinforce-baseline"
+	title="reinforce_baseline.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(0)
+
+# 10-armed bandit. Rewards sit around +5 — a large offset that says
+# NOTHING about which arm is best, but bloats every gradient estimate.
+K = 10
+q_star = rng.normal(0, 1, K) + 5.0
+best = int(q_star.argmax())
+
+def softmax(h):
+    z = h - h.max(); e = np.exp(z); return e / e.sum()
+
+# Draw many one-sample gradient estimates at a FIXED (uniform) policy.
+pi = softmax(np.zeros(K))
+M = 40000
+a = rng.choice(K, size=M, p=pi)
+r = rng.normal(q_star[a], 1.0)
+score = np.eye(K)[a] - pi                      # grad log pi(a), one per sample
+g_no  = score *  r[:, None]                    # no baseline   (b = 0)
+g_yes = score * (r - q_star.mean())[:, None]   # baseline  b = mean reward
+
+print(f"E||grad||^2   no baseline:   {(g_no  ** 2).sum(1).mean():7.3f}")
+print(f"E||grad||^2   with baseline: {(g_yes ** 2).sum(1).mean():7.3f}")
+print(f"variance reduced by:  {(g_no ** 2).sum(1).mean() / (g_yes ** 2).sum(1).mean():4.1f}x")
+
+cn, cy = g_no[:, best], g_yes[:, best]         # the best-arm component
+print(f"mean of estimate   no baseline: {cn.mean():+.3f}   baseline: {cy.mean():+.3f}  (same)")
+print(f"std  of estimate   no baseline: {cn.std():.3f}    baseline: {cy.std():.3f}")
+
+bins = np.linspace(min(cn.min(), cy.min()), max(cn.max(), cy.max()), 70)
+fig, ax = plt.subplots(figsize=(7, 3.4))
+ax.hist(cn, bins=bins, density=True, alpha=0.6, label="no baseline")
+ax.hist(cy, bins=bins, density=True, alpha=0.6, label="with baseline")
+ax.axvline(cy.mean(), c="k", ls="--", lw=1, label="shared mean")
+ax.set_yscale("log")
+ax.set_xlabel("gradient estimate, best-arm component")
+ax.set_ylabel("density"); ax.set_title("Same expected gradient, far less variance")
+ax.legend(); ax.grid(alpha=0.3)
+fig.tight_layout()
+`}
+/>
+
+<Aside type="tip" title="What you're seeing">
+	Both histograms share the **same mean** — subtracting a baseline does not
+	change where the gradient points, so it remains unbiased. The spread, however,
+	contracts sharply (here by roughly $18\times$ in squared norm): the baseline
+	removes the uninformative $+5$ common-mode reward, leaving only the component
+	that distinguishes the arms. The signal is preserved with far less noise, which
+	is the reason advantages are used.
+</Aside>
+
+## The limitation that the next page addresses
+
+Policy gradients carry a subtle fragility. The estimator is valid only *at* the
+current $\theta$; it is a local, on-policy quantity. A step that is too large
+leads the new policy to visit states the gradient never accounted for, the update
+can collapse the policy, and recovery is difficult. Moreover, because each batch
+of experience is valid for only one gradient step, sample efficiency is poor.
+
+The next two routes both address the question of how to take a step that is both
+large and safe — first by explicitly bounding how far the policy may move
+([trust regions](/reinforcement-learning/trust-regions/)), and later by
+reframing the problem so that the safe step follows automatically
+([RL as inference](/reinforcement-learning/rl-as-inference/)).
+
+## References
+
+- Williams (1992). *Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning* (REINFORCE). Machine Learning. [doi:10.1007/BF00992696](https://doi.org/10.1007/BF00992696)
+- Sutton et al. (2000). *Policy Gradient Methods for Reinforcement Learning with Function Approximation* (the policy gradient theorem). NeurIPS 1999. [NeurIPS](https://proceedings.neurips.cc/paper/1999/hash/464d828b85b0bed98e80ade0a5c43b0f-Abstract.html)
+- Schulman et al. (2016). *High-Dimensional Continuous Control Using Generalized Advantage Estimation* (GAE). ICLR 2016. [arXiv:1506.02438](https://arxiv.org/abs/1506.02438)
+- Silver et al. (2014). *Deterministic Policy Gradient Algorithms* (DPG). ICML 2014. [PMLR](https://proceedings.mlr.press/v32/silver14.html)
+- Lillicrap et al. (2016). *Continuous control with deep reinforcement learning* (DDPG). ICLR 2016. [arXiv:1509.02971](https://arxiv.org/abs/1509.02971)
+- Fujimoto, van Hoof & Meger (2018). *Addressing Function Approximation Error in Actor-Critic Methods* (TD3). ICML 2018. [arXiv:1802.09477](https://arxiv.org/abs/1802.09477)

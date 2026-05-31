@@ -1,0 +1,138 @@
+---
+title: Attention on Graphs
+description: Graph attention networks — letting each edge learn its own, content-dependent weight, derived from the GAT equations and implemented neighbour by neighbour.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import PyCell from '../../../components/python/PyCell';
+
+The GCN's neighbour weights are **fixed**: $\tfrac{1}{\sqrt{\tilde d_i \tilde d_j}}$
+depends only on how many connections two nodes have, never on *what they contain*.
+Yet not all neighbours are equally relevant. A graph attention network (GAT)
+addresses this by letting every edge compute its own weight from the node features
+— the same mechanism that drives Transformers, now restricted to the graph's
+edges.
+
+## The mechanism
+
+Each node is projected with a shared map, $\mathbf{z}_i = W\mathbf{h}_i$. For an
+edge $i\!\sim\!j$, the degree to which $i$ should attend to $j$ is scored with a
+learnable vector $\mathbf{a}$ applied to the concatenation of the two projected
+features:
+
+$$
+e_{ij} = \operatorname{LeakyReLU}\!\big( \mathbf{a}^\top [\,\mathbf{z}_i \,\Vert\, \mathbf{z}_j\,] \big).
+$$
+
+The scores are normalized across each node's neighbourhood (including the node
+itself, via a self-loop) with a softmax, so that the weights on each node's
+incoming edges form a probability distribution:
+
+$$
+\alpha_{ij} = \frac{\exp(e_{ij})}{\sum_{k \in \mathcal{N}(i)\cup\{i\}} \exp(e_{ik})}.
+$$
+
+Aggregation then proceeds exactly as before, but with these *learned* weights in
+place of the fixed ones:
+
+$$
+\mathbf{h}_i' = \sigma\!\Big( \sum_{j \in \mathcal{N}(i)\cup\{i\}} \alpha_{ij}\, \mathbf{z}_j \Big).
+$$
+
+<Aside type="note" title="This is masked self-attention">
+	Consider the [Transformer](/transformers/attention/), in which every token
+	attends to every other token. GAT is the *same* computation with one change: a
+	token (node) may attend only to its graph neighbours. The adjacency matrix *is*
+	the attention mask. A Transformer is a GAT on the complete graph; a GAT is a
+	Transformer that respects edges.
+</Aside>
+
+### Multiple heads
+
+A single attention pattern is fragile, so GAT employs $M$ independent heads in
+parallel and concatenates them — each head $m$ with its own $W^m$ and $\mathbf{a}^m$:
+
+$$
+\mathbf{h}_i' = \big\Vert_{m=1}^{M}\; \sigma\!\Big( \sum_{j} \alpha_{ij}^{\,m}\, W^m \mathbf{h}_j \Big).
+$$
+
+Different heads can specialize — one may track structural role, another feature
+similarity — much like the heads in [multi-head attention](/transformers/multi-head-attention/).
+At the final layer the heads are averaged rather than concatenated.
+
+## Build a GAT layer
+
+The following implements a single attention head from end to end: it projects the
+features, scores every edge, applies a softmax over neighbourhoods, and aggregates.
+The two heatmaps illustrate the central point of this page — GAT's weights vary
+cell by cell with the *content*, whereas the GCN's are fixed by *degree*:
+
+<PyCell
+	client:only="react"
+	id="gnn-gat-layer"
+	title="gat_layer.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+rng = np.random.default_rng(2)
+
+# a small graph; GAT attends over neighbours AND self (via self-loops)
+edges = [(0,1),(0,2),(1,2),(2,3),(3,4),(3,5),(4,5),(2,4)]
+N = 6
+A = np.zeros((N, N))
+for u, v in edges:
+    A[u, v] = A[v, u] = 1
+A_self = A + np.eye(N)
+
+# random node features + one attention head's parameters
+F, Fp = 5, 4
+H = rng.normal(0, 1, (N, F))
+W = rng.normal(0, 0.7, (F, Fp))      # shared linear map   z_i = W h_i
+a = rng.normal(0, 0.7, (2 * Fp,))    # attention vector    a = [a_src ; a_dst]
+leaky = lambda x: np.where(x > 0, x, 0.2 * x)
+
+Z = H @ W                            # (N, Fp)
+# e_ij = LeakyReLU( a . [z_i || z_j] ) = LeakyReLU( a_src.z_i + a_dst.z_j )
+src = Z @ a[:Fp]                     # (N,)
+dst = Z @ a[Fp:]                     # (N,)
+e = leaky(src[:, None] + dst[None, :])           # (N, N)
+e = np.where(A_self > 0, e, -1e9)                # mask out non-neighbours
+alpha = np.exp(e - e.max(1, keepdims=True))
+alpha = alpha / alpha.sum(1, keepdims=True)      # softmax over each row
+Hp = leaky(alpha @ Z)                # updated representations  (N, Fp)
+
+np.set_printoptions(precision=2, suppress=True)
+print("each row of alpha sums to 1:", np.allclose(alpha.sum(1), 1.0))
+print("layer output shape:", Hp.shape)
+print()
+print("alpha[i, j] = how much node i weights neighbour j:")
+print(alpha)
+
+# the GCN's FIXED weights, for contrast:  A_hat = D~^-1/2 (A+I) D~^-1/2
+d = A_self.sum(1)
+gcn = A_self / np.sqrt(d[:, None]) / np.sqrt(d[None, :])
+
+fig, (axL, axR) = plt.subplots(1, 2, figsize=(7.6, 3.4))
+for ax, M, t in [(axL, alpha, "GAT: learned attention"), (axR, gcn, "GCN: fixed weights")]:
+    im = ax.imshow(M, cmap="viridis", vmin=0)
+    ax.set_title(t); ax.set_xlabel("neighbour j"); ax.set_ylabel("node i")
+    fig.colorbar(im, ax=ax, fraction=0.046)
+fig.tight_layout()
+`}
+/>
+
+<Aside type="tip" title="Try it">
+	Re-sampling the features with a different seed (`default_rng(7)`) changes the
+	attention pattern while the GCN matrix remains unchanged, since it depends only
+	on degrees. A second head may then be added: draw a fresh `W` and `a`, recompute,
+	and concatenate `Hp` from both.
+</Aside>
+
+Attention provides flexibility, yet every variant considered so far — GCN, GAT, and
+the rest — remains message passing. This raises the question the [final page](/graph-neural-networks/depth-and-pitfalls/)
+addresses directly: how powerful is this entire family, and what fails when it is
+made deeper?
+
+## References
+
+- Veličković et al. (2018). *Graph Attention Networks* (GAT). ICLR 2018. [arXiv:1710.10903](https://arxiv.org/abs/1710.10903)
+- Vaswani et al. (2017). *Attention Is All You Need* (the self-attention GAT restricts to graph edges). NeurIPS 2017. [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)

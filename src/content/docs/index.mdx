@@ -1,0 +1,121 @@
+---
+title: learn
+description: An interactive knowledge base — theory, visuals, and live in-browser Python.
+template: splash
+hero:
+  tagline: An interactive course combining theory, manipulable visualizations, and Python executed directly in the browser.
+  actions:
+    - text: Start with Neural Networks
+      link: /neural-networks/the-neuron/
+      icon: right-arrow
+      variant: primary
+    - text: Open the Playground
+      link: /playground/
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+An interactive textbook. Each concept is accompanied by its mathematics, a
+manipulable visualization, and Python that **executes directly on the page**,
+requiring no installation or configuration. Every component runs in the browser.
+
+<CardGrid>
+	<Card title="Read the theory" icon="open-book">
+		Precise explanations with rigorous mathematics, typeset with KaTeX.
+	</Card>
+	<Card title="Run the experiments" icon="rocket">
+		Interactive Python cells (NumPy, Matplotlib, scikit-learn) powered by
+		Pyodide, editable and re-runnable inline.
+	</Card>
+	<Card title="Explore the visualizations" icon="puzzle">
+		Purpose-built interactive diagrams in 2D and 3D for the cases where a figure
+		conveys more than a paragraph.
+	</Card>
+	<Card title="Extend the material" icon="laptop">
+		Open a complete notebook in the [Playground](/playground/) to pursue any
+		idea further.
+	</Card>
+</CardGrid>
+
+## Start here
+
+The first track constructs a neural network from a single neuron up to a trained
+classifier, deriving **backpropagation** analytically and verifying it in code.
+
+<CardGrid>
+	<Card title="01 · The Neuron" icon="seti:default">
+		[A weighted sum and a nonlinearity.](/neural-networks/the-neuron/) Adjust the
+		weights and observe the resulting output.
+	</Card>
+	<Card title="02 · The Forward Pass" icon="seti:default">
+		[Composing neurons into layers.](/neural-networks/forward-pass/) Activation
+		functions, plotted interactively.
+	</Card>
+	<Card title="03 · Backpropagation" icon="seti:default">
+		[The chain rule applied systematically.](/neural-networks/backpropagation/)
+		Observe gradients propagate through a computation graph.
+	</Card>
+	<Card title="04 · Gradient Descent" icon="seti:default">
+		[Descending a loss surface.](/neural-networks/gradient-descent/) Presented in
+		interactive 3D.
+	</Card>
+</CardGrid>
+
+## The shared toolkit: Divergences
+
+Both tracks rest on a common construct: a **divergence** that quantifies the
+discrepancy between two distributions. It is the loss underlying maximum
+likelihood, the regularizer underlying trust regions, and the reason forward and
+reverse KL draw a model in opposite directions.
+
+<CardGrid>
+	<Card title="Bregman divergences" icon="puzzle">
+		[One convex function generating an entire family of divergences.](/divergences/bregman/)
+		The divergence is the gap above a tangent line; adjust two points to observe it.
+	</Card>
+	<Card title="KL: forward vs reverse" icon="puzzle">
+		[Mode-covering versus mode-seeking behavior.](/divergences/kl-forward-reverse/)
+		Fit a single Gaussian to a bimodal target and observe how each direction selects differently.
+	</Card>
+</CardGrid>
+
+## Then: Reinforcement Learning
+
+The second track surveys modern policy optimization in full: the
+**policy-gradient** path from REINFORCE through PPO to **GRPO**, and the
+**expectation-maximization** path through MPO, V-MPO, and AWR. It establishes that
+the two address the same problem from opposite directions.
+
+<CardGrid>
+	<Card title="Policy Gradients → GRPO" icon="rocket">
+		[Differentiating the objective and ascending it.](/reinforcement-learning/policy-gradients/)
+		Score functions, trust regions, and the critic-free update underlying RL-trained
+		language models.
+	</Card>
+	<Card title="The EM road: MPO → AWR" icon="puzzle">
+		[An alternative to differentiation: imitating the optimum.](/reinforcement-learning/expectation-maximization/)
+		The KL-regularized objective and advantage-weighted regression.
+	</Card>
+</CardGrid>
+
+## Finally: World Models
+
+A reinforcement learner acts in the world. A **world model** learns a simulator of
+it — perception, dynamics, and reward — and then plans or learns *inside* the model,
+trading costly real interaction for cheap imagination. The track runs from the
+original VAE + MDN-RNN to PlaNet, Dreamer, MuZero, and JEPA.
+
+<CardGrid>
+	<Card title="Perception, dynamics, imagination" icon="rocket">
+		[Compress observation to a latent; predict its future.](/world-models/the-idea/)
+		The variational autoencoder, the mixture-density dynamics, and the error that
+		compounds over every rollout.
+	</Card>
+	<Card title="Planning, dreaming, searching" icon="puzzle">
+		[Three ways to use a learned model.](/world-models/rssm-and-planning/)
+		Cross-entropy-method planning, Dreamer's actor–critic in imagination, and
+		MuZero's value-equivalent tree search.
+	</Card>
+</CardGrid>

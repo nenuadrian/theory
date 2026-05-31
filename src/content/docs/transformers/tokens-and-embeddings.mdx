@@ -1,0 +1,159 @@
+---
+title: Tokens & Embeddings
+description: How a transformer turns discrete symbols into vectors — the embedding lookup table and the residual stream it feeds.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import PyCell from '../../../components/python/PyCell';
+import TokenizerPlayground from '../../../components/viz/TokenizerPlayground';
+
+A transformer operates on vectors, whereas text is a sequence of discrete symbols.
+The first task is to bridge that gap.
+
+## Tokenization
+
+Raw text is segmented into **tokens** — neither whole words nor individual characters, but
+**subword** units chosen so that common words remain intact while rare ones are split
+into reusable pieces. The string `"transformer"` may constitute a single token, whereas a longer form such as
+`"antidisestablishment"` is decomposed into several. Each distinct token carries an integer **id** into
+a fixed **vocabulary** of size $|V|$, typically comprising tens of thousands of entries.
+
+A sentence thereby becomes a list of integers, one id per token:
+
+$$
+\text{``the cat sat''} \;\longrightarrow\; [\,t_1, t_2, t_3, \dots\,].
+$$
+
+The segmentation itself is learned by **byte-pair encoding** (BPE): one begins from raw bytes
+and repeatedly merges the most frequent adjacent pair into a new token, until the
+vocabulary is full. Common words are retained as single tokens, while rare ones are decomposed into
+fragments.
+
+### An interactive tokenizer
+
+The playground below runs the same BPE that GPT-4o, GPT-4, and GPT-3 employ, executing
+live in the browser via [`gpt-tokenizer`](https://github.com/niieani/gpt-tokenizer)
+(a JavaScript port of OpenAI's **tiktoken**). It accepts arbitrary input, permits the encoding to
+be switched in order to compare model families, and exposes the raw token IDs:
+
+<TokenizerPlayground client:only="react" />
+
+Several properties merit attention:
+
+- **Leading spaces are absorbed.** Most tokens incorporate their leading space; ` cat` is one
+  token, distinct from `cat` at the start of a line.
+- **Numbers fragment.** `3.14159` is several tokens rather than one, which partly accounts for the
+  difficulty language models exhibit with arithmetic.
+- **Rarity and case incur additional tokens.** `internationalization` and `CamelCaseHTTP` are split
+  into many pieces; the older `p50k_base` typically consumes *more* tokens than
+  `o200k_base` on the same text, as vocabularies have grown over time.
+
+<Aside type="tip" title="Why token count matters">
+	The token is the unit a model is metered on: context windows are measured in
+	tokens, API pricing is per token, and a prompt that handles rare words or
+	irregular formatting inattentively incurs a higher cost. The `chars / token` ratio above is an approximate
+	gauge — ordinary English falls near **4**, whereas code, mathematics, and non-Latin
+	scripts run lower.
+</Aside>
+
+## Embeddings: a learned lookup
+
+These ids are merely labels: id `2415` is no nearer to `2416` than to `9`. They acquire
+meaning through an **embedding matrix** $E \in \mathbb{R}^{|V| \times d}$, where
+$d$ is the model's working width. Token id $t$ selects **row** $E_t$:
+
+$$
+\mathbf{x}_i = E_{t_i} \;\in\; \mathbb{R}^{d}.
+$$
+
+Equivalently, and this is what renders the operation differentiable, the lookup is a matrix
+product with a **one-hot** vector $\mathbf{e}_{t}$ (all zeros except a single $1$ at
+index $t$):
+
+$$
+E_{t} = \mathbf{e}_{t}^{\top} E.
+$$
+
+The matrix $E$ is initialized at random and **learned** alongside every other parameter.
+Training displaces tokens that play similar roles toward similar vectors, so that geometry
+in this space comes to encode meaning, to the extent that elementary vector
+arithmetic yields sensible analogies.
+
+<Aside type="note" title="The residual stream">
+	Stacking the token vectors yields a matrix $X \in \mathbb{R}^{T \times d}$ for
+	a sequence of length $T$. This $X$ is the **residual stream**: the running state
+	that every layer reads from and writes back to. Everything that follows —
+	attention and the MLP — is a transformation of $X$ that *preserves its shape*.
+</Aside>
+
+## In code
+
+An actual $E$ is learned from billions of words, yet the mechanics amount to a lookup
+followed by a similarity computation. The following is a hand-constructed toy space whose two axes denote
+*royalty* and *masculinity* — sufficient for the canonical
+`king − man + woman ≈ queen` to emerge directly from the geometry:
+
+<PyCell
+	client:only="react"
+	id="tf-embeddings"
+	title="embeddings.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+# A toy 2-D "semantic space". Real embeddings are learned, but the mechanics are
+# identical: a token id selects one row of the embedding matrix E.
+#   column 0 ~ royalty,   column 1 ~ masculinity
+vocab = ["king", "queen", "man", "woman", "apple", "orange"]
+E = np.array([
+    [ 0.90, 0.80],   # king    royal,  masculine
+    [ 0.90, 0.20],   # queen   royal,  feminine
+    [ 0.10, 0.80],   # man     common, masculine
+    [ 0.10, 0.20],   # woman   common, feminine
+    [-0.80, 0.50],   # apple   fruit
+    [-0.70, 0.45],   # orange  fruit
+])
+stoi = {w: i for i, w in enumerate(vocab)}
+
+def embed(word):
+    return E[stoi[word]]              # a row lookup == one_hot(word) @ E
+
+# The analogy is pure geometry: king - man + woman
+guess = embed("king") - embed("man") + embed("woman")
+cos = E @ guess / (np.linalg.norm(E, axis=1) * np.linalg.norm(guess))
+ranked = sorted(zip(vocab, cos), key=lambda t: -t[1])
+
+print("king - man + woman =", np.round(guess, 2))
+print("closest tokens:")
+for w, s in ranked[:3]:
+    print(f"   {w:7s} cos = {s:+.3f}")
+
+fig, ax = plt.subplots(figsize=(5, 4))
+ax.scatter(E[:, 0], E[:, 1], s=14, zorder=3)
+for w, (x, y) in zip(vocab, E):
+    ax.annotate(w, (x, y), fontsize=9, xytext=(5, 4), textcoords="offset points")
+ax.axhline(0, color="0.8", lw=0.8); ax.axvline(0, color="0.8", lw=0.8)
+ax.set_xlabel("royalty"); ax.set_ylabel("masculinity")
+ax.set_title("a toy embedding space"); ax.grid(alpha=0.25)
+fig.tight_layout()
+`}
+/>
+
+<Aside type="tip" title="Why subwords?">
+	Character vocabularies are small but produce excessively long sequences; word
+	vocabularies are very large and fail on misspellings and rare words. Subword schemes such as
+	**BPE** and **WordPiece** occupy the middle ground — a few tens of thousands of tokens
+	that can nonetheless represent any string. Editing the toy vectors above changes which
+	word the analogy resolves to.
+</Aside>
+
+With every token now represented as a vector in the residual stream, the central
+question may be posed: how should these vectors **share information**? That is the subject of
+[attention](/transformers/attention/).
+
+## References
+
+- Mikolov et al. (2013). *Efficient Estimation of Word Representations in Vector Space* (word2vec). ICLR 2013 Workshop. [arXiv:1301.3781](https://arxiv.org/abs/1301.3781)
+- Sennrich, Haddow & Birch (2016). *Neural Machine Translation of Rare Words with Subword Units* (BPE for NMT). ACL 2016. [arXiv:1508.07909](https://arxiv.org/abs/1508.07909)
+- Gage (1994). *A New Algorithm for Data Compression* (the original byte-pair encoding). The C Users Journal.
+- Schuster & Nakajima (2012). *Japanese and Korean Voice Search* (WordPiece). ICASSP 2012. [doi:10.1109/ICASSP.2012.6289079](https://doi.org/10.1109/ICASSP.2012.6289079)
+- Brown et al. (2020). *Language Models are Few-Shot Learners* (GPT-3). NeurIPS 2020. [arXiv:2005.14165](https://arxiv.org/abs/2005.14165)

@@ -1,0 +1,66 @@
+---
+title: Graph Neural Networks
+description: Deep learning on graphs — message passing, graph convolutions, attention, and the limits of depth, with interactive visuals and runnable Python.
+---
+
+import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+
+A great deal of data is neither a grid nor a sequence. Molecules, social networks,
+road maps, citation graphs, knowledge bases, 3-D meshes, and the call graph of a
+program are all **graphs**: a set of entities together with the relationships
+between them. A graph neural network performs deep learning on that structure
+*directly*, rather than flattening it into a form it does not possess.
+
+The field rests on a single idea — **message passing**: every node repeatedly
+incorporates information from its neighbours. By stacking several rounds of this
+operation and making the mixing learnable, one can classify nodes, predict missing
+links, or assign scores to entire molecules.
+
+## The path
+
+<CardGrid>
+	<Card title="01 · Graphs & Message Passing" icon="seti:default">
+		[The data, its symmetry, and the single idea underlying every GNN.](/graph-neural-networks/graphs-and-message-passing/)
+		Aggregation over neighbours, applied repeatedly.
+	</Card>
+	<Card title="02 · Graph Convolutions" icon="seti:default">
+		[From message passing to the GCN.](/graph-neural-networks/graph-convolutional-networks/)
+		The graph Laplacian, the Fourier view, and a network trained from scratch.
+	</Card>
+	<Card title="03 · Attention on Graphs" icon="seti:default">
+		[Allowing the edges to weigh themselves.](/graph-neural-networks/graph-attention/)
+		Graph attention, derived and implemented neighbour by neighbour.
+	</Card>
+	<Card title="04 · Depth & Its Discontents" icon="seti:default">
+		[The expressive power of GNNs, and why additional depth is not always beneficial.](/graph-neural-networks/depth-and-pitfalls/)
+		The Weisfeiler–Leman test, over-smoothing, and over-squashing.
+	</Card>
+	<Card title="05 · Graph Transformers" icon="seti:default">
+		[When locality is the obstacle, attend to the whole graph.](/graph-neural-networks/graph-transformers/)
+		Positional encodings, Graphormer's distance bias, and expressivity past 1-WL.
+	</Card>
+</CardGrid>
+
+## What this track builds
+
+By its conclusion, the reader will have implemented message passing, a complete
+**graph convolutional network** (forward pass, backpropagation, and
+semi-supervised training, all in NumPy), a **graph attention** layer, and a global
+**graph-transformer** layer with a Laplacian positional encoding and a
+distance-biased attention. Interactive figures further demonstrate why stacking too
+many layers causes every node to converge to the same vector, and how global
+attention reaches across a graph that message passing cannot.
+
+<Aside type="note">
+	The prerequisites are modest: familiarity with vectors, matrices, and the chain
+	rule. The [Neural Networks](/neural-networks/) track supplies everything
+	required; the [attention](/graph-neural-networks/graph-attention/) page also
+	parallels the [Transformers](/transformers/) track.
+</Aside>
+
+## References
+
+- Gilmer et al. (2017). *Neural Message Passing for Quantum Chemistry* (MPNN). ICML 2017. [arXiv:1704.01212](https://arxiv.org/abs/1704.01212)
+- Kipf & Welling (2017). *Semi-Supervised Classification with Graph Convolutional Networks* (GCN). ICLR 2017. [arXiv:1609.02907](https://arxiv.org/abs/1609.02907)
+- Veličković et al. (2018). *Graph Attention Networks* (GAT). ICLR 2018. [arXiv:1710.10903](https://arxiv.org/abs/1710.10903)
+- Xu et al. (2019). *How Powerful are Graph Neural Networks?* (GIN; the Weisfeiler–Leman bound). ICLR 2019. [arXiv:1810.00826](https://arxiv.org/abs/1810.00826)

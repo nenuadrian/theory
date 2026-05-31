@@ -1,0 +1,105 @@
+---
+title: V-MPO
+description: On-policy MPO at scale — using state-value advantages instead of a learned Q, a top-half filtering trick, and the same temperature dual and trust-region M-step.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+[MPO](/reinforcement-learning/mpo/) is off-policy and relies on a learned
+action-value $Q_\phi$. This becomes a liability at scale: when thousands
+of parallel actors feed a single learner — the regime in which on-policy methods
+such as PPO and IMPALA dominate — fitting an accurate $Q$ is difficult, and it is preferable to
+use the fresh on-policy data directly. **V-MPO** (Song et al. 2019) adapts the EM
+loop to precisely this setting, and was used to train large-scale agents across
+Atari, DMLab-30, and continuous control, matching or surpassing the on-policy
+baselines of its day.
+
+Two changes render MPO on-policy.
+
+## Change 1: advantages from a state-value critic
+
+V-MPO discards the action-value $Q_\phi$ and retains only a **state-value** critic
+$V_\phi(s)$, trained by regressing toward $n$-step returns. The learning signal
+becomes the **advantage** computed from on-policy rollouts:
+
+$$
+A(s_t, a_t) = G_t^{(n)} - V_\phi(s_t),
+$$
+
+with $G_t^{(n)}$ an $n$-step (or GAE-style) return. Wherever MPO wrote $Q$,
+V-MPO writes $A$. This substitution is valid because the E-step depends only on
+*relative* value, and $Q$ and $A$ differ by a state-only constant that the
+normalization eliminates.
+
+Because the data is on-policy, there is typically **one action per state**.
+Consequently the nonparametric target $\psi$ is no longer a per-state distribution over
+actions; it is a single distribution over **all the $(s, a)$ pairs in the batch**,
+weighting each by its exponentiated advantage.
+
+## Change 2: keep only the better half
+
+This is V-MPO's signature device. Instead of weighting every sample, it **discards
+the bottom half of the batch by advantage** and constructs the target only from the
+top half $\tilde{\mathcal{D}}$:
+
+$$
+\psi(s, a) = \frac{\exp\!\big(A(s, a)/\eta\big)}{\sum_{(s', a') \in \tilde{\mathcal{D}}} \exp\!\big(A(s', a')/\eta\big)},
+\qquad (s, a) \in \tilde{\mathcal{D}}.
+$$
+
+The rationale is that below-average actions carry little useful signal once the advantages have been
+exponentiated, and discarding them outright reduces variance and prevents the policy from
+expending capacity on imitating mediocre behavior. Empirically, this filtering
+accounts for much of why V-MPO trains stably at scale.
+
+The temperature $\eta$ is determined by the **same convex dual** as in MPO, now over the
+top-half advantages:
+
+$$
+\eta^{*} = \arg\min_{\eta > 0}\; \eta\, \epsilon_\eta + \eta\, \log \frac{1}{|\tilde{\mathcal{D}}|} \sum_{(s, a) \in \tilde{\mathcal{D}}} \exp\!\Big(\frac{A(s, a)}{\eta}\Big).
+$$
+
+The principle is the same as before: the temperature is set so that the target moves a fixed KL
+$\epsilon_\eta$ from the current policy, automatically and at any reward scale.
+
+## The M-step is unchanged
+
+Given the target weights, the network is fit by weighted maximum likelihood under a
+trust-region KL — identical in form to MPO:
+
+$$
+\max_{\theta}\; \sum_{(s, a) \in \tilde{\mathcal{D}}} \psi(s, a)\, \log \pi_\theta(a \mid s)
+\quad \text{s.t.} \quad
+\mathbb{E}_{s}\big[\, D_{\mathrm{KL}}\big(\pi_{\text{old}}(\cdot \mid s) \,\|\, \pi_\theta(\cdot \mid s)\big) \,\big] \le \epsilon_M.
+$$
+
+Both the temperature constraint $\epsilon_\eta$ and the trust-region $\epsilon_M$
+are handled by Lagrange multipliers learned by gradient descent alongside
+$\theta$, so the practitioner specifies two interpretable KL budgets and the algorithm
+determines the remainder.
+
+<Aside type="note" title="MPO vs V-MPO, side by side">
+	**Critic:** MPO learns $Q$ off-policy, whereas V-MPO learns $V$ on-policy. **Data:** MPO
+	replays a buffer, whereas V-MPO consumes fresh rollouts. **E-step weights:** MPO
+	exponentiates $Q$ over actions sampled per state, whereas V-MPO exponentiates $A$ over
+	the top half of a batch. **M-step and dual:** these are identical. V-MPO is MPO adapted to the
+	on-policy, large-scale regime.
+</Aside>
+
+<Aside type="tip" title="The recurring shape">
+	Observe that V-MPO and [PPO](/reinforcement-learning/trust-regions/) now occupy
+	the *same* niche — on-policy, advantage-based, KL-controlled — yet derive their
+	updates by entirely different means. PPO clips a policy-gradient ratio, whereas V-MPO
+	regresses onto an exponentiated-advantage target. The two roads have converged
+	on the same problem from opposite directions.
+</Aside>
+
+The final page reduces the loop to its essentials — no dual, no learned $Q$, no
+trust-region solve — and shows that even this minimal form remains effective, while tying the whole
+family back to the starting point: [AWR](/reinforcement-learning/awr/).
+
+## References
+
+- Song et al. (2019). *V-MPO: On-Policy Maximum a Posteriori Policy Optimization for Discrete and Continuous Control*. ICLR 2020. [arXiv:1909.12238](https://arxiv.org/abs/1909.12238)
+- Abdolmaleki et al. (2018). *Maximum a Posteriori Policy Optimisation* (MPO). ICLR 2018. [arXiv:1806.06920](https://arxiv.org/abs/1806.06920)
+- Espeholt et al. (2018). *IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures*. ICML 2018. [arXiv:1802.01561](https://arxiv.org/abs/1802.01561)

@@ -1,0 +1,170 @@
+---
+title: References
+description: A consolidated bibliography for the whole site — every paper cited across the Neural Networks, Transformers, Divergences, Reinforcement Learning, World Models, and Graph Neural Networks tracks, with links to arXiv, DOIs, and primary sources.
+---
+
+The works cited across the site, grouped by track and ordered by year. Each
+lesson page also carries its own **References** section listing the papers
+relevant to it; this page aggregates them. Foundational works that several tracks
+draw on (the transformer, the natural gradient, REINFORCE) are listed under each
+track that uses them. Links resolve to arXiv, a DOI, or the primary source.
+
+## Neural Networks
+
+- Fisher (1922). *On the Mathematical Foundations of Theoretical Statistics* (maximum likelihood). Philosophical Transactions of the Royal Society A. [doi:10.1098/rsta.1922.0009](https://doi.org/10.1098/rsta.1922.0009)
+- Robbins & Monro (1951). *A Stochastic Approximation Method* (stochastic gradient descent). Annals of Mathematical Statistics. [doi:10.1214/aoms/1177729586](https://doi.org/10.1214/aoms/1177729586)
+- Rosenblatt (1958). *The Perceptron: A Probabilistic Model for Information Storage and Organization in the Brain*. Psychological Review. [doi:10.1037/h0042519](https://doi.org/10.1037/h0042519)
+- Polyak (1964). *Some methods of speeding up the convergence of iteration methods* (heavy-ball momentum). USSR Computational Mathematics and Mathematical Physics. [doi:10.1016/0041-5553(64)90137-5](https://doi.org/10.1016/0041-5553%2864%2990137-5)
+- Werbos (1974). *Beyond Regression: New Tools for Prediction and Analysis in the Behavioral Sciences*. PhD thesis, Harvard University.
+- Linnainmaa (1976). *Taylor expansion of the accumulated rounding error* (reverse-mode automatic differentiation). BIT Numerical Mathematics. [doi:10.1007/BF01931367](https://doi.org/10.1007/BF01931367)
+- Nesterov (1983). *A method for solving the convex programming problem with convergence rate O(1/k²)*. Soviet Mathematics Doklady. [mathnet.ru](https://www.mathnet.ru/eng/dan46009)
+- Rumelhart, Hinton & Williams (1986). *Learning representations by back-propagating errors*. Nature. [doi:10.1038/323533a0](https://doi.org/10.1038/323533a0)
+- Cybenko (1989). *Approximation by Superpositions of a Sigmoidal Function* (universal approximation). Mathematics of Control, Signals and Systems. [doi:10.1007/BF02551274](https://doi.org/10.1007/BF02551274)
+- Bridle (1990). *Probabilistic Interpretation of Feedforward Classification Network Outputs, with Relationships to Statistical Pattern Recognition* (the softmax). Neurocomputing (NATO ASI Series). [doi:10.1007/978-3-642-76153-9_28](https://doi.org/10.1007/978-3-642-76153-9_28)
+- Hornik (1991). *Approximation Capabilities of Multilayer Feedforward Networks*. Neural Networks. [doi:10.1016/0893-6080(91)90009-T](https://doi.org/10.1016/0893-6080%2891%2990009-T)
+- Nair & Hinton (2010). *Rectified Linear Units Improve Restricted Boltzmann Machines* (ReLU). ICML 2010. [pdf](https://icml.cc/Conferences/2010/papers/432.pdf)
+- Duchi, Hazan & Singer (2011). *Adaptive Subgradient Methods for Online Learning and Stochastic Optimization* (AdaGrad). Journal of Machine Learning Research. [JMLR](https://www.jmlr.org/papers/v12/duchi11a.html)
+- Glorot, Bordes & Bengio (2011). *Deep Sparse Rectifier Neural Networks*. AISTATS 2011. [PMLR](https://proceedings.mlr.press/v15/glorot11a.html)
+- Tieleman & Hinton (2012). *Lecture 6.5 — RMSprop: Divide the gradient by a running average of its recent magnitude*. Coursera: Neural Networks for Machine Learning. [slides](https://www.cs.toronto.edu/~tijmen/csc321/slides/lecture_slides_lec6.pdf)
+- Maas, Hannun & Ng (2013). *Rectifier Nonlinearities Improve Neural Network Acoustic Models* (Leaky ReLU). ICML Workshop on Deep Learning for Audio, Speech and Language Processing. [pdf](https://ai.stanford.edu/~amaas/papers/relu_hybrid_icml2013_final.pdf)
+- Sutskever et al. (2013). *On the importance of initialization and momentum in deep learning*. ICML 2013. [PMLR](https://proceedings.mlr.press/v28/sutskever13.html)
+- Kingma & Ba (2015). *Adam: A Method for Stochastic Optimization*. ICLR 2015. [arXiv:1412.6980](https://arxiv.org/abs/1412.6980)
+- Loshchilov & Hutter (2019). *Decoupled Weight Decay Regularization* (AdamW). ICLR 2019. [arXiv:1711.05101](https://arxiv.org/abs/1711.05101)
+
+## Transformers
+
+- Gage (1994). *A New Algorithm for Data Compression* (the original byte-pair encoding). The C Users Journal.
+- Schuster & Nakajima (2012). *Japanese and Korean Voice Search* (WordPiece). ICASSP 2012. [doi:10.1109/ICASSP.2012.6289079](https://doi.org/10.1109/ICASSP.2012.6289079)
+- Mikolov et al. (2013). *Efficient Estimation of Word Representations in Vector Space* (word2vec). ICLR 2013 Workshop. [arXiv:1301.3781](https://arxiv.org/abs/1301.3781)
+- Bahdanau, Cho & Bengio (2015). *Neural Machine Translation by Jointly Learning to Align and Translate* (content-based attention). ICLR 2015. [arXiv:1409.0473](https://arxiv.org/abs/1409.0473)
+- Ba, Kiros & Hinton (2016). *Layer Normalization*. [arXiv:1607.06450](https://arxiv.org/abs/1607.06450)
+- He et al. (2016). *Deep Residual Learning for Image Recognition* (residual connections / ResNet). CVPR 2016. [arXiv:1512.03385](https://arxiv.org/abs/1512.03385)
+- Hendrycks & Gimpel (2016). *Gaussian Error Linear Units (GELUs)*. [arXiv:1606.08415](https://arxiv.org/abs/1606.08415)
+- Sennrich, Haddow & Birch (2016). *Neural Machine Translation of Rare Words with Subword Units* (BPE for NMT). ACL 2016. [arXiv:1508.07909](https://arxiv.org/abs/1508.07909)
+- Gehring et al. (2017). *Convolutional Sequence to Sequence Learning* (learned positional embeddings). ICML 2017. [arXiv:1705.03122](https://arxiv.org/abs/1705.03122)
+- Vaswani et al. (2017). *Attention Is All You Need* (the transformer; scaled dot-product and multi-head attention; sinusoidal positional encoding). NeurIPS 2017. [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)
+- Radford et al. (2018). *Improving Language Understanding by Generative Pre-Training* (GPT). OpenAI technical report. [openai.com](https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf)
+- Devlin et al. (2019). *BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding* (learned absolute position embeddings). NAACL 2019. [arXiv:1810.04805](https://arxiv.org/abs/1810.04805)
+- Brown et al. (2020). *Language Models are Few-Shot Learners* (GPT-3). NeurIPS 2020. [arXiv:2005.14165](https://arxiv.org/abs/2005.14165)
+- Xiong et al. (2020). *On Layer Normalization in the Transformer Architecture* (pre-LN). ICML 2020. [arXiv:2002.04745](https://arxiv.org/abs/2002.04745)
+- Elhage et al. (2021). *A Mathematical Framework for Transformer Circuits*. Anthropic. [transformer-circuits.pub](https://transformer-circuits.pub/2021/framework/index.html)
+- Su et al. (2021). *RoFormer: Enhanced Transformer with Rotary Position Embedding* (RoPE). Neurocomputing. [arXiv:2104.09864](https://arxiv.org/abs/2104.09864)
+- Olsson et al. (2022). *In-context Learning and Induction Heads*. Anthropic. [arXiv:2209.11895](https://arxiv.org/abs/2209.11895)
+- Chen et al. (2023). *Extending Context Window of Large Language Models via Positional Interpolation*. [arXiv:2306.15595](https://arxiv.org/abs/2306.15595)
+- Peng et al. (2023). *YaRN: Efficient Context Window Extension of Large Language Models*. ICLR 2024. [arXiv:2309.00071](https://arxiv.org/abs/2309.00071)
+- Xiao et al. (2023). *Efficient Streaming Language Models with Attention Sinks* (the attention sink). ICLR 2024. [arXiv:2309.17453](https://arxiv.org/abs/2309.17453)
+
+## Divergences
+
+- Fisher (1922). *On the Mathematical Foundations of Theoretical Statistics* (Fisher information; maximum likelihood). Philosophical Transactions of the Royal Society A. [doi:10.1098/rsta.1922.0009](https://doi.org/10.1098/rsta.1922.0009)
+- Mahalanobis (1936). *On the generalised distance in statistics*. Proceedings of the National Institute of Sciences of India.
+- Rao (1945). *Information and the accuracy attainable in the estimation of statistical parameters* (the Cramér–Rao bound). Bulletin of the Calcutta Mathematical Society.
+- Kullback & Leibler (1951). *On Information and Sufficiency*. Annals of Mathematical Statistics. [doi:10.1214/aoms/1177729694](https://doi.org/10.1214/aoms/1177729694)
+- Ali & Silvey (1966). *A General Class of Coefficients of Divergence of One Distribution from Another* (the f-divergence family). Journal of the Royal Statistical Society: Series B. [doi:10.1111/j.2517-6161.1966.tb00626.x](https://doi.org/10.1111/j.2517-6161.1966.tb00626.x)
+- Bregman (1967). *The relaxation method of finding the common point of convex sets and its application to the solution of problems in convex programming*. USSR Computational Mathematics and Mathematical Physics. [doi:10.1016/0041-5553(67)90040-7](https://doi.org/10.1016/0041-5553%2867%2990040-7)
+- Csiszár (1967). *Information-type measures of difference of probability distributions and indirect observations* (the f-divergence family). Studia Scientiarum Mathematicarum Hungarica.
+- Itakura & Saito (1968). *Analysis-synthesis telephony based on the maximum likelihood method* (the Itakura–Saito divergence). Proc. 6th International Congress on Acoustics.
+- Lloyd (1982). *Least Squares Quantization in PCM* (k-means). IEEE Transactions on Information Theory. [doi:10.1109/TIT.1982.1056489](https://doi.org/10.1109/TIT.1982.1056489)
+- Amari (1998). *Natural Gradient Works Efficiently in Learning*. Neural Computation. [doi:10.1162/089976698300017746](https://doi.org/10.1162/089976698300017746)
+- Kakade (2001). *A Natural Policy Gradient*. NeurIPS 2001. [NeurIPS](https://proceedings.neurips.cc/paper/2001/hash/4b86abe48d358ecf194c56c69108433e-Abstract.html)
+- Schraudolph (2002). *Fast Curvature Matrix-Vector Products for Second-Order Gradient Descent* (the Generalized Gauss–Newton matrix). Neural Computation. [doi:10.1162/08997660260028683](https://doi.org/10.1162/08997660260028683)
+- Banerjee et al. (2005). *Clustering with Bregman Divergences*. Journal of Machine Learning Research. [JMLR](https://www.jmlr.org/papers/v6/banerjee05b.html)
+- Tieleman & Hinton (2012). *Lecture 6.5 — RMSprop*. Coursera: Neural Networks for Machine Learning. [slides](https://www.cs.toronto.edu/~tijmen/csc321/slides/lecture_slides_lec6.pdf)
+- Goodfellow et al. (2014). *Generative Adversarial Nets*. NeurIPS 2014. [arXiv:1406.2661](https://arxiv.org/abs/1406.2661)
+- Pascanu & Bengio (2014). *Revisiting Natural Gradient for Deep Networks*. ICLR 2014. [arXiv:1301.3584](https://arxiv.org/abs/1301.3584)
+- Hinton, Vinyals & Dean (2015). *Distilling the Knowledge in a Neural Network* (distillation). NeurIPS 2014 Deep Learning Workshop. [arXiv:1503.02531](https://arxiv.org/abs/1503.02531)
+- Martens & Grosse (2015). *Optimizing Neural Networks with Kronecker-factored Approximate Curvature* (K-FAC). ICML 2015. [arXiv:1503.05671](https://arxiv.org/abs/1503.05671)
+- Schulman et al. (2015). *Trust Region Policy Optimization* (TRPO; the natural-gradient trust region). ICML 2015. [arXiv:1502.05477](https://arxiv.org/abs/1502.05477)
+- Kingma & Ba (2015). *Adam: A Method for Stochastic Optimization*. ICLR 2015. [arXiv:1412.6980](https://arxiv.org/abs/1412.6980)
+- Blei, Kucukelbir & McAuliffe (2017). *Variational Inference: A Review for Statisticians*. Journal of the American Statistical Association. [arXiv:1601.00670](https://arxiv.org/abs/1601.00670)
+- Kunstner, Balles & Hennig (2019). *Limitations of the Empirical Fisher Approximation for Natural Gradient Descent*. NeurIPS 2019. [arXiv:1905.12558](https://arxiv.org/abs/1905.12558)
+- Martens (2020). *New Insights and Perspectives on the Natural Gradient Method*. Journal of Machine Learning Research. [arXiv:1412.1193](https://arxiv.org/abs/1412.1193)
+
+## Reinforcement Learning
+
+- Bellman (1957). *Dynamic Programming*. Princeton University Press. [Princeton University Press](https://press.princeton.edu/books/paperback/9780691146683/dynamic-programming)
+- Dempster, Laird & Rubin (1977). *Maximum Likelihood from Incomplete Data via the EM Algorithm*. Journal of the Royal Statistical Society: Series B. [doi:10.1111/j.2517-6161.1977.tb01600.x](https://doi.org/10.1111/j.2517-6161.1977.tb01600.x)
+- Williams (1992). *Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning* (REINFORCE). Machine Learning. [doi:10.1007/BF00992696](https://doi.org/10.1007/BF00992696)
+- Neal & Hinton (1998). *A View of the EM Algorithm that Justifies Incremental, Sparse, and Other Variants*. In *Learning in Graphical Models*. [doi:10.1007/978-94-011-5014-9_12](https://doi.org/10.1007/978-94-011-5014-9_12)
+- Sutton et al. (2000). *Policy Gradient Methods for Reinforcement Learning with Function Approximation* (the policy gradient theorem). NeurIPS 1999. [NeurIPS](https://proceedings.neurips.cc/paper/1999/hash/464d828b85b0bed98e80ade0a5c43b0f-Abstract.html)
+- Kakade (2001). *A Natural Policy Gradient*. NeurIPS 2001. [NeurIPS](https://proceedings.neurips.cc/paper/2001/hash/4b86abe48d358ecf194c56c69108433e-Abstract.html)
+- Kakade & Langford (2002). *Approximately Optimal Approximate Reinforcement Learning* (the performance-difference bound / CPI). ICML 2002. [ICML](https://dl.acm.org/doi/10.5555/645531.656005)
+- Hunter & Lange (2004). *A Tutorial on MM Algorithms* (minorize-maximize). The American Statistician. [doi:10.1198/0003130042836](https://doi.org/10.1198/0003130042836)
+- Peters & Schaal (2007). *Reinforcement Learning by Reward-Weighted Regression for Operational Space Control* (RWR). ICML 2007. [doi:10.1145/1273496.1273590](https://doi.org/10.1145/1273496.1273590)
+- Ziebart et al. (2008). *Maximum Entropy Inverse Reinforcement Learning* (maximum-entropy RL). AAAI 2008. [AAAI](https://cdn.aaai.org/AAAI/2008/AAAI08-227.pdf)
+- Silver et al. (2014). *Deterministic Policy Gradient Algorithms* (DPG). ICML 2014. [PMLR](https://proceedings.mlr.press/v32/silver14.html)
+- Schulman et al. (2015). *Trust Region Policy Optimization* (TRPO). ICML 2015. [arXiv:1502.05477](https://arxiv.org/abs/1502.05477)
+- Lillicrap et al. (2016). *Continuous control with deep reinforcement learning* (DDPG). ICLR 2016. [arXiv:1509.02971](https://arxiv.org/abs/1509.02971)
+- Mnih et al. (2016). *Asynchronous Methods for Deep Reinforcement Learning* (A3C / A2C). ICML 2016. [arXiv:1602.01783](https://arxiv.org/abs/1602.01783)
+- Munos et al. (2016). *Safe and Efficient Off-Policy Reinforcement Learning* (Retrace). NeurIPS 2016. [arXiv:1606.02647](https://arxiv.org/abs/1606.02647)
+- Schulman et al. (2016). *High-Dimensional Continuous Control Using Generalized Advantage Estimation* (GAE). ICLR 2016. [arXiv:1506.02438](https://arxiv.org/abs/1506.02438)
+- Schulman et al. (2017). *Proximal Policy Optimization Algorithms* (PPO). [arXiv:1707.06347](https://arxiv.org/abs/1707.06347)
+- Levine (2018). *Reinforcement Learning and Control as Probabilistic Inference: Tutorial and Review*. [arXiv:1805.00909](https://arxiv.org/abs/1805.00909)
+- Fujimoto, van Hoof & Meger (2018). *Addressing Function Approximation Error in Actor-Critic Methods* (TD3). ICML 2018. [arXiv:1802.09477](https://arxiv.org/abs/1802.09477)
+- Haarnoja et al. (2018). *Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor* (SAC). ICML 2018. [arXiv:1801.01290](https://arxiv.org/abs/1801.01290)
+- Abdolmaleki et al. (2018). *Maximum a Posteriori Policy Optimisation* (MPO). ICLR 2018. [arXiv:1806.06920](https://arxiv.org/abs/1806.06920)
+- Abdolmaleki et al. (2018). *Relative Entropy Regularized Policy Iteration* (the decoupled-trust-region MPO). [arXiv:1812.02256](https://arxiv.org/abs/1812.02256)
+- Espeholt et al. (2018). *IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures*. ICML 2018. [arXiv:1802.01561](https://arxiv.org/abs/1802.01561)
+- Song et al. (2019). *V-MPO: On-Policy Maximum a Posteriori Policy Optimization for Discrete and Continuous Control*. ICLR 2020. [arXiv:1909.12238](https://arxiv.org/abs/1909.12238)
+- Peng et al. (2019). *Advantage-Weighted Regression: Simple and Scalable Off-Policy Reinforcement Learning* (AWR). [arXiv:1910.00177](https://arxiv.org/abs/1910.00177)
+- Nair et al. (2020). *AWAC: Accelerating Online Reinforcement Learning with Offline Datasets*. [arXiv:2006.09359](https://arxiv.org/abs/2006.09359)
+- Schulman (2020). *Approximating KL Divergence* (the always-positive KL estimator). [joschu.net](http://joschu.net/blog/kl-approx.html)
+- Hessel et al. (2021). *Muesli: Combining Improvements in Policy Optimization*. ICML 2021. [arXiv:2104.06159](https://arxiv.org/abs/2104.06159)
+- Ouyang et al. (2022). *Training Language Models to Follow Instructions with Human Feedback* (InstructGPT; classic RLHF). NeurIPS 2022. [arXiv:2203.02155](https://arxiv.org/abs/2203.02155)
+- Rafailov et al. (2023). *Direct Preference Optimization: Your Language Model is Secretly a Reward Model* (DPO). NeurIPS 2023. [arXiv:2305.18290](https://arxiv.org/abs/2305.18290)
+- Shao et al. (2024). *DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models* (GRPO). [arXiv:2402.03300](https://arxiv.org/abs/2402.03300)
+- DeepSeek-AI (2025). *DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning*. [arXiv:2501.12948](https://arxiv.org/abs/2501.12948)
+- Liu et al. (2025). *Understanding R1-Zero-Like Training: A Critical Perspective* (Dr. GRPO). [arXiv:2503.20783](https://arxiv.org/abs/2503.20783)
+
+## World Models
+
+- Hénon (1976). *A two-dimensional mapping with a strange attractor*. Communications in Mathematical Physics. [doi:10.1007/BF01608556](https://doi.org/10.1007/BF01608556)
+- Sutton (1988). *Learning to Predict by the Methods of Temporal Differences* (TD(λ) / the λ-return). Machine Learning. [doi:10.1007/BF00115009](https://doi.org/10.1007/BF00115009)
+- Williams (1992). *Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning* (REINFORCE / score-function gradients). Machine Learning. [doi:10.1007/BF00992696](https://doi.org/10.1007/BF00992696)
+- Bishop (1994). *Mixture Density Networks*. Aston University Technical Report NCRG/94/004. [pdf](https://publications.aston.ac.uk/id/eprint/373/1/NCRG_94_004.pdf)
+- Hochreiter & Schmidhuber (1997). *Long Short-Term Memory* (LSTM). Neural Computation. [doi:10.1162/neco.1997.9.8.1735](https://doi.org/10.1162/neco.1997.9.8.1735)
+- Rubinstein (1997). *Optimization of computer simulation models with rare events* (the cross-entropy method). European Journal of Operational Research. [doi:10.1016/S0377-2217(96)00385-2](https://doi.org/10.1016/S0377-2217%2896%2900385-2)
+- Kingma & Welling (2014). *Auto-Encoding Variational Bayes* (the VAE; ELBO; reparameterization). ICLR 2014. [arXiv:1312.6114](https://arxiv.org/abs/1312.6114)
+- Rezende, Mohamed & Wierstra (2014). *Stochastic Backpropagation and Approximate Inference in Deep Generative Models*. ICML 2014. [arXiv:1401.4082](https://arxiv.org/abs/1401.4082)
+- Cho et al. (2014). *Learning Phrase Representations using RNN Encoder-Decoder for Statistical Machine Translation* (GRU). EMNLP 2014. [arXiv:1406.1078](https://arxiv.org/abs/1406.1078)
+- Schulman et al. (2016). *High-Dimensional Continuous Control Using Generalized Advantage Estimation* (GAE; the λ-return). ICLR 2016. [arXiv:1506.02438](https://arxiv.org/abs/1506.02438)
+- Kingma et al. (2016). *Improving Variational Inference with Inverse Autoregressive Flow* (the free-bits/free-nats device). NeurIPS 2016. [arXiv:1606.04934](https://arxiv.org/abs/1606.04934)
+- Higgins et al. (2017). *β-VAE: Learning Basic Visual Concepts with a Constrained Variational Framework*. ICLR 2017. [OpenReview](https://openreview.net/forum?id=Sy2fzU9gl)
+- Bellemare, Dabney & Munos (2017). *A Distributional Perspective on Reinforcement Learning* (the two-hot / distributional critic). ICML 2017. [arXiv:1707.06887](https://arxiv.org/abs/1707.06887)
+- Silver et al. (2017). *Mastering the Game of Go without Human Knowledge* (AlphaGo Zero; MCTS, PUCT). Nature. [doi:10.1038/nature24270](https://doi.org/10.1038/nature24270)
+- Ha & Schmidhuber (2018). *World Models* (the VAE + MDN-RNN architecture). NeurIPS 2018. [arXiv:1803.10122](https://arxiv.org/abs/1803.10122)
+- Hafner et al. (2019). *Learning Latent Dynamics for Planning from Pixels* (PlaNet / RSSM). ICML 2019. [arXiv:1811.04551](https://arxiv.org/abs/1811.04551)
+- Hafner et al. (2020). *Dream to Control: Learning Behaviors by Latent Imagination* (Dreamer). ICLR 2020. [arXiv:1912.01603](https://arxiv.org/abs/1912.01603)
+- Grimm et al. (2020). *The Value Equivalence Principle for Model-Based Reinforcement Learning*. NeurIPS 2020. [arXiv:2011.03506](https://arxiv.org/abs/2011.03506)
+- Schrittwieser et al. (2020). *Mastering Atari, Go, Chess and Shogi by Planning with a Learned Model* (MuZero). Nature. [arXiv:1911.08265](https://arxiv.org/abs/1911.08265)
+- Grill et al. (2020). *Bootstrap Your Own Latent: A New Approach to Self-Supervised Learning* (BYOL). NeurIPS 2020. [arXiv:2006.07733](https://arxiv.org/abs/2006.07733)
+- Hafner et al. (2021). *Mastering Atari with Discrete World Models* (DreamerV2; KL balancing). ICLR 2021. [arXiv:2010.02193](https://arxiv.org/abs/2010.02193)
+- LeCun (2022). *A Path Towards Autonomous Machine Intelligence* (JEPA). [OpenReview](https://openreview.net/forum?id=BZ5a1r-kVsf)
+- Bardes, Ponce & LeCun (2022). *VICReg: Variance-Invariance-Covariance Regularization for Self-Supervised Learning*. ICLR 2022. [arXiv:2105.04906](https://arxiv.org/abs/2105.04906)
+- Hafner et al. (2023). *Mastering Diverse Domains through World Models* (DreamerV3; symlog, two-hot critic). [arXiv:2301.04104](https://arxiv.org/abs/2301.04104)
+- Assran et al. (2023). *Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture* (I-JEPA). CVPR 2023. [arXiv:2301.08243](https://arxiv.org/abs/2301.08243)
+- Hu et al. (2023). *GAIA-1: A Generative World Model for Autonomous Driving*. [arXiv:2309.17080](https://arxiv.org/abs/2309.17080)
+- Bardes et al. (2024). *Revisiting Feature Prediction for Learning Visual Representations from Video* (V-JEPA). [arXiv:2404.08471](https://arxiv.org/abs/2404.08471)
+- Bruce et al. (2024). *Genie: Generative Interactive Environments*. ICML 2024. [arXiv:2402.15391](https://arxiv.org/abs/2402.15391)
+- Brooks et al. (2024). *Video generation models as world simulators* (Sora). OpenAI technical report. [openai.com](https://openai.com/index/video-generation-models-as-world-simulators/)
+
+## Graph Neural Networks
+
+- Weisfeiler & Leman (1968). *The reduction of a graph to canonical form and the algebra which appears therein* (the 1-WL test). Nauchno-Technicheskaya Informatsia.
+- Fiedler (1973). *Algebraic connectivity of graphs* (the Fiedler vector). Czechoslovak Mathematical Journal. [doi:10.21136/CMJ.1973.101168](https://doi.org/10.21136/CMJ.1973.101168)
+- Scarselli et al. (2009). *The Graph Neural Network Model* (the original GNN). IEEE Transactions on Neural Networks. [doi:10.1109/TNN.2008.2005605](https://doi.org/10.1109/TNN.2008.2005605)
+- Shuman et al. (2013). *The Emerging Field of Signal Processing on Graphs*. IEEE Signal Processing Magazine. [arXiv:1211.0053](https://arxiv.org/abs/1211.0053)
+- Bruna et al. (2014). *Spectral Networks and Locally Connected Networks on Graphs* (spectral graph convolution). ICLR 2014. [arXiv:1312.6203](https://arxiv.org/abs/1312.6203)
+- Defferrard et al. (2016). *Convolutional Neural Networks on Graphs with Fast Localized Spectral Filtering* (ChebNet). NeurIPS 2016. [arXiv:1606.09375](https://arxiv.org/abs/1606.09375)
+- Gilmer et al. (2017). *Neural Message Passing for Quantum Chemistry* (MPNN). ICML 2017. [arXiv:1704.01212](https://arxiv.org/abs/1704.01212)
+- Kipf & Welling (2017). *Semi-Supervised Classification with Graph Convolutional Networks* (GCN). ICLR 2017. [arXiv:1609.02907](https://arxiv.org/abs/1609.02907)
+- Vaswani et al. (2017). *Attention Is All You Need* (the self-attention GAT restricts to graph edges). NeurIPS 2017. [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)
+- Li, Han & Wu (2018). *Deeper Insights into Graph Convolutional Networks for Semi-Supervised Learning* (over-smoothing). AAAI 2018. [arXiv:1801.07606](https://arxiv.org/abs/1801.07606)
+- Xu et al. (2018). *Representation Learning on Graphs with Jumping Knowledge Networks*. ICML 2018. [arXiv:1806.03536](https://arxiv.org/abs/1806.03536)
+- Veličković et al. (2018). *Graph Attention Networks* (GAT). ICLR 2018. [arXiv:1710.10903](https://arxiv.org/abs/1710.10903)
+- Xu et al. (2019). *How Powerful are Graph Neural Networks?* (GIN; the GNN ≤ 1-WL bound). ICLR 2019. [arXiv:1810.00826](https://arxiv.org/abs/1810.00826)
+- Morris et al. (2019). *Weisfeiler and Leman Go Neural: Higher-order Graph Neural Networks*. AAAI 2019. [arXiv:1810.02244](https://arxiv.org/abs/1810.02244)
+- Zhao & Akoglu (2020). *PairNorm: Tackling Oversmoothing in GNNs*. ICLR 2020. [arXiv:1909.12223](https://arxiv.org/abs/1909.12223)
+- Alon & Yahav (2021). *On the Bottleneck of Graph Neural Networks and its Practical Implications* (over-squashing). ICLR 2021. [arXiv:2006.05205](https://arxiv.org/abs/2006.05205)
+- Bronstein et al. (2021). *Geometric Deep Learning: Grids, Groups, Graphs, Geodesics, and Gauges*. [arXiv:2104.13478](https://arxiv.org/abs/2104.13478)
+- Cai et al. (2021). *GraphNorm: A Principled Approach to Accelerating Graph Neural Network Training*. ICML 2021. [arXiv:2009.03294](https://arxiv.org/abs/2009.03294)

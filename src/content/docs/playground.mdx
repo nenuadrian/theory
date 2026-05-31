@@ -1,0 +1,36 @@
+---
+title: Playground
+description: A scratchpad notebook running entirely in your browser — plus a full JupyterLab.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Notebook from '../../components/python/Notebook';
+
+A scratchpad for extending any experiment. The cells below share **one Python
+kernel**: a definition introduced in one cell is available in the next, as in a
+notebook. NumPy, Matplotlib, pandas, SciPy, scikit-learn, and SymPy are each
+available through a plain `import`; nothing is installed, and no data leaves the
+browser.
+
+<Notebook
+	client:only="react"
+	cells={[
+		{
+			id: 'welcome',
+			title: 'start.py',
+			code: `import numpy as np\nimport matplotlib.pyplot as plt\nprint("Python is ready —", "NumPy", np.__version__)`,
+		},
+		{
+			id: 'scratch',
+			title: 'scratch.py',
+			code: `# Your turn. For example, a quick plot:\nx = np.linspace(0, 4 * np.pi, 400)\nplt.plot(x, np.sin(x) * np.exp(-x / 6))\nplt.title("damped sine"); plt.grid(alpha=0.3)`,
+		},
+	]}
+/>
+
+<Aside type="tip" title="A complete IDE is also available">
+	For a complete Jupyter environment, including a file browser, multiple
+	notebooks, and saving of `.ipynb` files, open the full{' '}
+	<a href="/jupyter/lab/index.html" target="_blank" rel="noopener">JupyterLab ↗</a>{' '}
+	(it is larger and requires several seconds to initialize).
+</Aside>

@@ -1,0 +1,176 @@
+---
+title: Depth & Its Discontents
+description: How powerful message-passing GNNs are (the Weisfeiler–Leman test and GIN), and the two failure modes of depth — over-smoothing and over-squashing.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import OverSmoothing from '../../../components/viz/OverSmoothing';
+import PyCell from '../../../components/python/PyCell';
+
+We now have a family of architectures — GCN, GAT, and every other message-passing
+scheme. Two questions determine how far it can carry us. **How expressive is it?**
+And **what happens when it is made deep?** The answers are precise, and somewhat
+sobering.
+
+## How powerful is message passing?
+
+There is a classic algorithm for distinguishing graphs: the **Weisfeiler–Leman**
+(1-WL) colour-refinement test. Every node is assigned a colour, and each node is
+then repeatedly recoloured by hashing its own colour together with the
+**multiset** of its neighbours' colours:
+
+$$
+c_i^{(k)} = \operatorname{HASH}\Big( c_i^{(k-1)},\; \{\!\!\{\, c_j^{(k-1)} : j \in \mathcal{N}(i) \,\}\!\!\} \Big).
+$$
+
+If two graphs end with different colour histograms, they are not isomorphic. The
+correspondence is evident — this is *precisely* message passing, with a hash in
+place of the neural aggregator. That parallel is a theorem: **a message-passing GNN
+is at most as powerful as the 1-WL test** at distinguishing graphs. No
+parametrization escapes that ceiling.
+
+To *reach* the ceiling, the aggregate-and-update step must be **injective** on
+multisets — distinct neighbourhoods must always produce distinct outputs. Here the
+choice of aggregator becomes decisive:
+
+- **mean** loses counts: $\{\!\!\{a\}\!\!\}$ and $\{\!\!\{a,a\}\!\!\}$ average to the same thing.
+- **max** loses multiplicity: $\{\!\!\{a,b\}\!\!\}$ and $\{\!\!\{a,b,b\}\!\!\}$ have the same max.
+- **sum** retains both, as it can count.
+
+This is the insight behind the **Graph Isomorphism Network (GIN)**, which uses a sum
+together with an MLP to obtain an injective update, making it provably as powerful
+as 1-WL:
+
+$$
+\mathbf{h}_i^{(k)} = \operatorname{MLP}^{(k)}\!\Big( (1+\epsilon)\,\mathbf{h}_i^{(k-1)} + \sum_{j \in \mathcal{N}(i)} \mathbf{h}_j^{(k-1)} \Big).
+$$
+
+<Aside type="caution" title="The ceiling is genuine">
+	1-WL — and therefore every standard GNN — **cannot** distinguish certain
+	non-isomorphic graphs: it cannot reliably count triangles or separate certain
+	regular graphs. Two structurally distinct molecules may be indistinguishable to
+	it. This motivates higher-order GNNs, positional and structural encodings, and
+	subgraph methods that deliberately exceed 1-WL.
+</Aside>
+
+## Failure mode #1: over-smoothing
+
+Expressiveness is thus bounded — but does additional depth at least help within
+that bound? Frequently it does not. Each layer mixes neighbours, and mixing is
+*smoothing*. Applying the propagation operator $\hat{A}$ a sufficient number of
+times causes every node to converge toward the same vector (formally, the
+projection onto $\hat{A}$'s dominant eigenvector). The **Dirichlet energy** — the
+total disagreement across edges — decays to zero:
+
+$$
+E(H) = \sum_{(i,j)\in E} \Big\| \frac{\mathbf{h}_i}{\sqrt{\tilde d_i}} - \frac{\mathbf{h}_j}{\sqrt{\tilde d_j}} \Big\|^2 \;\xrightarrow[\text{layers}]{}\; 0.
+$$
+
+In the visualization below, the two communities — sharply separated at layer 0 —
+dissolve into a single indistinguishable cluster as the slider advances, and the
+energy curve declines steeply.
+
+<OverSmoothing client:visible />
+
+This is why vanilla GCNs are typically **shallow**, with two or three layers. Beyond
+that, the features the classifier requires have been averaged away. The same
+collapse, measured numerically, is shown below:
+
+<PyCell
+	client:only="react"
+	id="gnn-oversmoothing"
+	title="over_smoothing.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+rng = np.random.default_rng(0)
+
+# a 2-community graph
+n_per = 25
+N = 2 * n_per
+y = np.r_[np.zeros(n_per), np.ones(n_per)].astype(int)
+P = np.where(y[:, None] == y[None, :], 0.4, 0.02)
+A = (rng.random((N, N)) < P).astype(float)
+A = np.triu(A, 1); A = A + A.T
+
+A_tilde = A + np.eye(N)
+d = A_tilde.sum(1)
+A_hat = A_tilde / np.sqrt(d[:, None]) / np.sqrt(d[None, :])
+
+ii, jj = np.where(np.triu(A) > 0)
+def dirichlet(Hc):
+    g = Hc / np.sqrt(d[:, None])         # normalized features  h_i / sqrt(d~_i)
+    return ((g[ii] - g[jj]) ** 2).sum()
+
+X = rng.normal(0, 1, (N, 2))             # 2-D features so we can watch them
+energies = []
+H = X.copy()
+for layer in range(31):
+    energies.append(dirichlet(H))
+    H = A_hat @ H                         # one more GCN-style propagation
+
+fig, (axE, axS) = plt.subplots(1, 2, figsize=(8.2, 3.4))
+axE.semilogy(energies, lw=2)
+axE.set_xlabel("layer"); axE.set_ylabel("Dirichlet energy (log)")
+axE.set_title("disagreement across edges -> 0"); axE.grid(alpha=0.3)
+for layer, col in [(0, "#2dd4bf"), (3, "#9aa0a6"), (30, "#fb923c")]:
+    g = (np.linalg.matrix_power(A_hat, layer) @ X) / np.sqrt(d[:, None])
+    axS.scatter(g[:, 0], g[:, 1], c=col, s=35, alpha=0.8, edgecolor="k", lw=0.3, label=f"layer {layer}")
+axS.legend(); axS.set_title("features collapse to a point")
+axS.set_xlabel("dim 0"); axS.set_ylabel("dim 1")
+fig.tight_layout()
+
+print(f"Dirichlet energy fell from {energies[0]:.2f} to {energies[-1]:.2e} in 30 layers.")
+print("A deep GCN gives every node essentially the same representation.")
+`}
+/>
+
+## Failure mode #2: over-squashing
+
+The opposite problem afflicts long-range tasks. A node's receptive field grows
+*exponentially* with depth, while its representation remains a *fixed-size* vector.
+Information from distant nodes must therefore be compressed through that bottleneck,
+and through the few edges that bridge distant regions. Signals required to travel
+far are **over-squashed**, and the network cannot route them. Adding layers to reach
+the distant node only intensifies the squashing.
+
+## What actually helps
+
+- **Remain shallow and increase width.** Most graph tasks are local, and 2–4 layers
+  is typical.
+- **Residual or skip connections and jumping knowledge.** These allow later layers
+  to retain access to earlier, un-smoothed representations.
+- **Normalization** (PairNorm, GraphNorm), which explicitly prevents node features
+  from collapsing together.
+- **Attention and gating** ([GAT](/graph-neural-networks/graph-attention/)), which
+  down-weight uninformative neighbours rather than averaging indiscriminately.
+- **Graph rewiring**, which widens bottlenecks and relieves over-squashing for
+  long-range tasks.
+- **Global attention** ([graph transformers](/graph-neural-networks/graph-transformers/)),
+  which abandon locality entirely — every node attends to every node, so a
+  long-range signal need not be routed through any bottleneck at all.
+
+<Aside type="note" title="The whole track, summarized">
+	A graph carries data with no canonical order, which calls for a
+	permutation-respecting computation — [message passing](/graph-neural-networks/graphs-and-message-passing/).
+	Taking its aggregator to be a principled normalized average yields the
+	[GCN](/graph-neural-networks/graph-convolutional-networks/); making the weights
+	learned and content-dependent yields
+	[GAT](/graph-neural-networks/graph-attention/). The family is bounded by the
+	power of the 1-WL test, and depth is opposed by over-smoothing and
+	over-squashing. The objective, within this local family, is to remain shallow,
+	select the appropriate aggregator, and facilitate the flow of signals. Where the
+	required range exceeds what locality can carry, the
+	[next page](/graph-neural-networks/graph-transformers/) discards the edge mask
+	altogether for global attention.
+</Aside>
+
+## References
+
+- Xu et al. (2019). *How Powerful are Graph Neural Networks?* (GIN; GNNs are bounded by 1-WL). ICLR 2019. [arXiv:1810.00826](https://arxiv.org/abs/1810.00826)
+- Morris et al. (2019). *Weisfeiler and Leman Go Neural: Higher-order Graph Neural Networks*. AAAI 2019. [arXiv:1810.02244](https://arxiv.org/abs/1810.02244)
+- Weisfeiler & Leman (1968). *The reduction of a graph to canonical form and the algebra which appears therein* (the 1-WL test). Nauchno-Technicheskaya Informatsia.
+- Li, Han & Wu (2018). *Deeper Insights into Graph Convolutional Networks for Semi-Supervised Learning* (over-smoothing). AAAI 2018. [arXiv:1801.07606](https://arxiv.org/abs/1801.07606)
+- Alon & Yahav (2021). *On the Bottleneck of Graph Neural Networks and its Practical Implications* (over-squashing). ICLR 2021. [arXiv:2006.05205](https://arxiv.org/abs/2006.05205)
+- Xu et al. (2018). *Representation Learning on Graphs with Jumping Knowledge Networks*. ICML 2018. [arXiv:1806.03536](https://arxiv.org/abs/1806.03536)
+- Zhao & Akoglu (2020). *PairNorm: Tackling Oversmoothing in GNNs*. ICLR 2020. [arXiv:1909.12223](https://arxiv.org/abs/1909.12223)
+- Cai et al. (2021). *GraphNorm: A Principled Approach to Accelerating Graph Neural Network Training*. ICML 2021. [arXiv:2009.03294](https://arxiv.org/abs/2009.03294)

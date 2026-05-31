@@ -1,0 +1,49 @@
+---
+title: Gradient Descent
+description: Translating gradients into learning — descent along the loss surface, in interactive 3D.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import LossSurface3D from '../../../components/viz/LossSurface3D';
+
+Backpropagation supplies the gradient $\nabla_\theta L$ — the direction of
+steepest **increase** in the loss. To reduce the loss, we take a small step in the
+opposite direction:
+
+$$
+\theta \leftarrow \theta - \eta\, \nabla_\theta L,
+$$
+
+where $\eta$ is the **learning rate**. When $\eta$ is too small, training
+progresses slowly; when it is too large, the iterate overshoots or diverges. The
+update is repeated until the loss ceases to decrease.
+
+## Descent along the surface
+
+Consider a 2-parameter loss surface. Pressing **drop** releases a ball from the
+upper ridge, which then follows $-\nabla L$ into a basin. The landscape may be
+rotated by dragging; $\eta$ may then be changed and the ball released again.
+
+<LossSurface3D client:only="react" />
+
+This surface comprises a gentle bowl together with a ripple, the latter giving
+rise to **local minima**. The two failure modes are thereby made apparent:
+
+- **η too small** — the ball advances slowly, requires hundreds of steps, and
+  settles in whichever basin lay beneath its starting position.
+- **η too large** — the ball overshoots each valley and may be expelled from the
+  landscape entirely (the loss *increases*).
+- **η well chosen** — it descends rapidly and halts where the gradient vanishes.
+
+<Aside type="note" title="The complete loop">
+	Practical networks perform this procedure in millions of dimensions rather than
+	two, with the gradient supplied by
+	[backpropagation](/neural-networks/backpropagation/). The principle is
+	unchanged: evaluate the loss, follow the slope downward, and repeat. This
+	constitutes learning.
+</Aside>
+
+## References
+
+- Robbins & Monro (1951). *A Stochastic Approximation Method* (the basis of stochastic gradient descent). Annals of Mathematical Statistics. [doi:10.1214/aoms/1177729586](https://doi.org/10.1214/aoms/1177729586)
+- Rumelhart, Hinton & Williams (1986). *Learning representations by back-propagating errors*. Nature. [doi:10.1038/323533a0](https://doi.org/10.1038/323533a0)

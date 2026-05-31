@@ -1,0 +1,124 @@
+---
+title: The Setup
+description: Markov decision processes, returns, and the value functions V, Q, and A — the objective every RL algorithm optimizes.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Before any algorithm can be stated, the problem must be specified precisely. An
+RL problem is a **Markov decision process** (MDP): a tuple
+$(\mathcal{S}, \mathcal{A}, P, r, \gamma, \rho_0)$ where
+
+- $\mathcal{S}$ is the set of **states** and $\mathcal{A}$ the set of
+  **actions**;
+- $P(s' \mid s, a)$ is the **transition** distribution — the distribution over
+  the state reached after taking $a$ in $s$;
+- $r(s, a)$ is the **reward** received for that step;
+- $\gamma \in [0, 1)$ is a **discount** that assigns far-future reward less
+  weight than immediate reward and ensures that infinite sums remain finite;
+- $\rho_0(s_0)$ is the distribution over **start states**.
+
+The term *Markov* denotes the central assumption: the next state depends only on
+the current state and action, not on the full history. The state is therefore a
+sufficient summary of the past.
+
+## The policy and the trajectory
+
+The agent acts through a **policy** $\pi_\theta(a \mid s)$ — a distribution over
+actions given a state, with learnable parameters $\theta$. Executing it produces
+a **trajectory**
+
+$$
+\tau = (s_0, a_0, r_0, s_1, a_1, r_1, \dots),
+\qquad
+s_0 \sim \rho_0,\;\; a_t \sim \pi_\theta(\cdot \mid s_t),\;\; s_{t+1} \sim P(\cdot \mid s_t, a_t).
+$$
+
+Because the components chain together, the probability of an entire trajectory
+factorizes:
+
+$$
+p_\theta(\tau) = \rho_0(s_0) \prod_{t} \pi_\theta(a_t \mid s_t)\, P(s_{t+1} \mid s_t, a_t).
+$$
+
+This product warrants attention: when it is differentiated on the next page, the
+environment terms $\rho_0$ and $P$ vanish, which is precisely why learning can
+proceed **without a model** of the environment.
+
+## The quantity to be maximized
+
+The **return** from time $t$ is the discounted sum of future reward:
+
+$$
+G_t = \sum_{k=0}^{\infty} \gamma^{k}\, r_{t+k}.
+$$
+
+The **objective** is the expected return from the start, over the randomness in
+both the policy and the environment:
+
+$$
+J(\theta) = \mathbb{E}_{\tau \sim p_\theta}\!\left[\, \sum_{t=0}^{\infty} \gamma^{t} r_t \,\right]
+= \mathbb{E}_{s_0 \sim \rho_0}\!\big[\, V^{\pi_\theta}(s_0) \,\big].
+$$
+
+Every algorithm in this track is a distinct strategy for adjusting $\theta$ so
+as to increase $J$.
+
+## Value functions: V, Q, and A
+
+Returns are noisy, as they depend on every random choice over the remainder of
+the episode. The remedy is to take expectations and define **value functions**,
+which become the central quantity of nearly every method considered here.
+
+The **state-value** is the expected return from a state when following $\pi$:
+
+$$
+V^{\pi}(s) = \mathbb{E}_{\pi}\!\left[\, G_t \mid s_t = s \,\right].
+$$
+
+The **action-value** (or **Q-function**) fixes the first action, then follows
+$\pi$:
+
+$$
+Q^{\pi}(s, a) = \mathbb{E}_{\pi}\!\left[\, G_t \mid s_t = s,\, a_t = a \,\right].
+$$
+
+Both satisfy a one-step recursion — the **Bellman equation** — which states that
+the value now equals the reward now plus the discounted value of the next state:
+
+$$
+Q^{\pi}(s, a) = r(s, a) + \gamma\, \mathbb{E}_{s' \sim P}\big[\, V^{\pi}(s') \,\big],
+\qquad
+V^{\pi}(s) = \mathbb{E}_{a \sim \pi}\big[\, Q^{\pi}(s, a) \,\big].
+$$
+
+Most useful of all is the **advantage**, the difference between them:
+
+$$
+A^{\pi}(s, a) = Q^{\pi}(s, a) - V^{\pi}(s).
+$$
+
+It answers the precise question that an RL update poses: *how much better than
+average is action $a$ in state $s$?* A positive advantage indicates that the
+action should be favored; a negative advantage, that it should be disfavored.
+Observe that $\mathbb{E}_{a \sim \pi}[A^{\pi}(s, a)] = 0$ — on average an action
+is exactly average — which is what makes the advantage a well-behaved,
+low-variance learning signal.
+
+<Aside type="note" title="Why this vocabulary matters">
+	The entire track is an account of $A$. Policy gradients multiply
+	$\nabla_\theta \log \pi$ by an estimate of $A$. Trust-region methods reweight
+	by $A$ under a constraint. The EM family exponentiates $A$ into regression
+	weights. The machinery differs, but the signal is identical: **shift
+	probability toward above-average actions.**
+</Aside>
+
+With the objective and the advantage established, the first substantive question
+can be posed: how is the gradient of $J(\theta)$ taken when the quantity being
+averaged over — the trajectory — itself depends on $\theta$? This is the subject
+of [the policy gradient](/reinforcement-learning/policy-gradients/).
+
+## References
+
+- Bellman (1957). *Dynamic Programming*. Princeton University Press. [Princeton University Press](https://press.princeton.edu/books/paperback/9780691146683/dynamic-programming)
+- Sutton & Barto (2018). *Reinforcement Learning: An Introduction* (2nd ed.). MIT Press. [book](http://incompleteideas.net/book/the-book-2nd.html)

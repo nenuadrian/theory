@@ -1,0 +1,178 @@
+---
+title: RL as Inference
+description: Control as probabilistic inference — the KL-regularized objective, its closed-form optimal policy, and the expectation-maximization loop on which the second road is built.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import PyCell from '../../../components/python/PyCell';
+
+The first road treated RL as optimization: one writes down $J(\theta)$, estimates its
+gradient, and ascends. This page reframes RL as **inference**. The question is no longer
+which direction is uphill, but rather, given the requirement to behave optimally, what is the *probability*
+that each action should be taken. The reframing is not merely interpretive: it yields the
+optimal policy in **closed form**, and that closed form proves to be precisely what
+PPO and GRPO had been approximating throughout. The general machinery behind this
+road — the evidence lower bound and its monotone E-step/M-step alternation — was
+set out on the [previous page](/reinforcement-learning/expectation-maximization/);
+here it is specialized to control.
+
+## Optimality as a random variable
+
+Attach to every step a binary **optimality** variable $\mathcal{O}_t$, with
+
+$$
+p(\mathcal{O}_t = 1 \mid s_t, a_t) \;\propto\; \exp\!\big(r(s_t, a_t) / \alpha\big).
+$$
+
+The event "$\mathcal{O}_t = 1$" denotes that *this step was optimal*, and high-reward steps are
+exponentially more likely to be so flagged. Conditioning the trajectory on being
+optimal throughout, we ask for the posterior over actions, $p(\tau \mid
+\mathcal{O}_{0:T} = 1)$. Planning thereby becomes **posterior inference** in a graphical
+model: which actions would have been taken, given that the outcome was optimal throughout.
+
+This posterior cannot be computed exactly, so we approximate it with a variational
+policy $\pi$ and maximize the **evidence lower bound** (ELBO) on $\log p(\mathcal{O}
+= 1)$. Carrying out the algebra, the ELBO is — up to constants — exactly a
+**KL-regularized return**:
+
+$$
+J(\pi) = \underbrace{\mathbb{E}_{a \sim \pi}\big[\, Q(s, a) \,\big]}_{\text{collect reward}}
+\;-\; \alpha\, \underbrace{D_{\mathrm{KL}}\!\big(\pi(\cdot \mid s) \,\|\, \pi_{\text{ref}}(\cdot \mid s)\big)}_{\text{stay near the prior}}.
+$$
+
+The temperature $\alpha$ trades the two terms off. The reference $\pi_{\text{ref}}$ is
+the prior over actions; taken uniform, the KL becomes an **entropy** bonus,
+recovering maximum-entropy RL. Taken as the previous policy, it recovers — by
+derivation rather than assumption — the KL tether from
+[PPO and GRPO](/reinforcement-learning/grpo/). Observe the direction: the
+expectation in this KL is taken under $\pi$ itself, making it the
+[**reverse** KL](/divergences/kl-forward-reverse/), the same direction that
+variational inference and the ELBO always minimize.
+
+## The E-step: the optimal policy, in closed form
+
+Consider maximizing $J(\pi)$ over the policy **nonparametrically** —
+treating $\pi(\cdot \mid s)$ as a free probability vector on the simplex, with no
+network intervening. This is a concave problem with one constraint
+($\sum_a \pi(a \mid s) = 1$); a Lagrange multiplier yields the maximizer directly:
+
+$$
+\boxed{\;\pi^{*}(a \mid s) = \frac{1}{Z(s)}\, \pi_{\text{ref}}(a \mid s)\, \exp\!\Big(\frac{Q(s, a)}{\alpha}\Big)\;}
+\qquad Z(s) = \sum_{a} \pi_{\text{ref}}(a \mid s)\, \exp\!\Big(\frac{Q(s, a)}{\alpha}\Big).
+$$
+
+This formula warrants careful reading, for the entire second road is contained within it.
+The optimal policy is the **prior, reweighted by exponentiated value**. Actions
+that the reference already favored *and* that have high $Q$ are amplified; all
+others are suppressed. The temperature $\alpha$ governs the degree of amplification: as
+$\alpha \to 0$ it collapses onto the single best action (greedy), and as $\alpha \to
+\infty$ it relaxes back to the prior $\pi_{\text{ref}}$ (no improvement). Since
+$\alpha \log Z(s)$ is the **soft value** $V(s)$, one may equivalently write
+$\pi^*(a \mid s) \propto \pi_{\text{ref}}(a \mid s)\exp(A(s,a)/\alpha)$, expressed in terms of the
+exponentiated **advantage**.
+
+This step constitutes policy improvement: starting from $\pi_{\text{ref}}$, it produces a
+strictly better policy $\pi^*$, and it does so without touching $\theta$.
+
+<PyCell
+	client:only="react"
+	id="rli-estep-tilt"
+	title="e_step.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+# A prior policy over 6 actions, plus an advantage for each action.
+acts  = np.arange(6)
+prior = np.array([0.30, 0.25, 0.20, 0.13, 0.08, 0.04])   # pi_ref
+A     = np.array([-1.0,  0.2,  1.5, -0.5,  2.0,  0.5])    # advantages
+best  = int(A.argmax())
+
+def e_step(beta):
+    w = prior * np.exp(A / beta)     # pi_ref * exp(A / temperature)
+    return w / w.sum()
+
+betas = [3.0, 1.0, 0.3]
+fig, axes = plt.subplots(1, len(betas) + 1, figsize=(9.5, 2.8), sharey=True)
+axes[0].bar(acts, prior, color="gray"); axes[0].set_title("prior  pi_ref")
+for ax, b in zip(axes[1:], betas):
+    ax.bar(acts, e_step(b), color="teal")
+    ax.set_title(f"q   beta = {b}")
+for ax in axes:
+    ax.set_xticks(acts); ax.set_ylim(0, 1.0)
+fig.suptitle("E-step:  q(a)  proportional to  pi_ref(a) * exp(A(a) / beta)")
+fig.tight_layout()
+
+print(f"highest-advantage action: {best}")
+for b in betas:
+    q = e_step(b)
+    print(f"beta={b:>3}:  argmax q = {int(q.argmax())},  q(best) = {q[best]:.2f}")
+`}
+/>
+
+<Aside type="tip" title="What the temperature does">
+	Observe the competition between prior and advantage. At $\beta = 3$ the prior
+	still prevails — the peak of $q$ sits on the prior's favored action, only gently
+	displaced. As $\beta$ shrinks, the highest-advantage action overtakes it, until at
+	$\beta = 0.3$ the mass concentrates on the best action regardless of how unlikely the
+	prior had judged it. The temperature is a continuous dial between **imitating
+	the prior** and **acting greedily** — the same dial $\alpha$, $\beta$, or $\eta$
+	that every method on this road exposes under a different name.
+</Aside>
+
+## The M-step: imitate it with the network
+
+A difficulty remains: $\pi^*$ is *nonparametric*. It is defined pointwise from $Q$ and the
+prior, not as a deployable neural network. We therefore **project** it back onto the
+parametric family $\pi_\theta$ by minimizing the *forward* KL
+$D_{\mathrm{KL}}(\pi^{*} \,\|\, \pi_\theta)$ — the expectation taken under the
+fixed target $\pi^{*}$, which is precisely the
+[direction maximum likelihood minimizes](/divergences/kl-forward-reverse/).
+Expanding it yields plain **weighted maximum likelihood**:
+
+$$
+\min_\theta\; \mathbb{E}_{s}\!\big[ D_{\mathrm{KL}}\big(\pi^{*}(\cdot \mid s) \,\|\, \pi_\theta(\cdot \mid s)\big) \big]
+\;\;\equiv\;\;
+\max_\theta\; \mathbb{E}_{s,\, a \sim \pi_{\text{ref}}}\!\left[\, \underbrace{\exp\!\Big(\frac{A(s, a)}{\alpha}\Big)}_{\text{weight}}\; \log \pi_\theta(a \mid s) \,\right].
+$$
+
+This is a supervised-learning objective: the network is regressed onto observed actions,
+each weighted by its exponentiated advantage. Favorable actions (large $A$) receive large
+weights and are strongly imitated; unfavorable actions receive vanishing weights and are effectively ignored.
+
+The two steps form an **expectation-maximization** loop:
+
+1. **E-step** — given the current value estimates, construct the improved
+   nonparametric target $\pi^* \propto \pi_{\text{ref}}\exp(A/\alpha)$.
+2. **M-step** — fit $\pi_\theta$ to $\pi^*$ by advantage-weighted regression.
+3. Set $\pi_{\text{ref}} \leftarrow \pi_\theta$, refresh the value estimates, and
+   repeat.
+
+<Aside type="note" title="The two roads, now visibly the same">
+	Both roads optimize $\mathbb{E}[A] - \alpha D_{\mathrm{KL}}(\pi \,\|\,
+	\pi_{\text{ref}})$. PPO and GRPO **ascend** it with a clipped policy gradient and a
+	KL penalty. The EM road **jumps to its closed-form optimum** $\pi^*$ and then
+	**imitates** it — with no policy gradient and no clipping, by weighted regression alone.
+	The objective and the optimum are the same; one approach differentiates toward it, the other
+	regresses onto it.
+</Aside>
+
+<Aside type="tip" title="And this is why DPO exists">
+	In RLHF the same closed form reads $\pi^*(y \mid x) \propto \pi_{\text{ref}}(y
+	\mid x)\exp(r(x, y)/\beta)$. Inverting it for the reward, $r = \beta \log
+	\tfrac{\pi^*}{\pi_{\text{ref}}} + \beta \log Z$, and substituting into a preference
+	loss, both the reward model and the RL loop cancel out — this is **Direct
+	Preference Optimization**. It is the inference view taken to its conclusion: when
+	the optimum is known in closed form, RL may be dispensed with entirely.
+</Aside>
+
+The next three pages render this EM loop concrete, differing only in how they
+execute each step: [MPO](/reinforcement-learning/mpo/) (off-policy, learned $Q$,
+auto-tuned temperature), [V-MPO](/reinforcement-learning/vmpo/) (on-policy,
+advantages), and [AWR](/reinforcement-learning/awr/) (the minimal version).
+
+## References
+
+- Levine (2018). *Reinforcement Learning and Control as Probabilistic Inference: Tutorial and Review*. [arXiv:1805.00909](https://arxiv.org/abs/1805.00909)
+- Ziebart et al. (2008). *Maximum Entropy Inverse Reinforcement Learning* (maximum-entropy RL). AAAI 2008. [AAAI](https://cdn.aaai.org/AAAI/2008/AAAI08-227.pdf)
+- Haarnoja et al. (2018). *Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor*. ICML 2018. [arXiv:1801.01290](https://arxiv.org/abs/1801.01290)
+- Rafailov et al. (2023). *Direct Preference Optimization: Your Language Model is Secretly a Reward Model* (DPO). NeurIPS 2023. [arXiv:2305.18290](https://arxiv.org/abs/2305.18290)

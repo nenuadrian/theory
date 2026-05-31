@@ -1,0 +1,469 @@
+---
+title: Fisher Information & the Natural Gradient
+description: The Fisher matrix is the curvature of KL, the covariance of the score, and the negative expected Hessian of log-likelihood — three faces of one object. We compute it neuron by neuron for a small network, trace the information flow end to end, and observe the natural gradient proceed smoothly where plain SGD diverges.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import NaturalGradient from '../../../components/viz/NaturalGradient';
+import PyCell from '../../../components/python/PyCell';
+
+The [KL divergence](/divergences/kl-forward-reverse/) measures the gap between two
+*different* distributions. Consider now a more local question: if the parameters
+are perturbed by an infinitesimal $d\theta$, how much does the distribution itself
+move? Expanding the KL between $p_\theta$ and its infinitesimally shifted neighbour
+$p_{\theta + d\theta}$, the constant term is zero (a distribution agrees with
+itself), the linear term is zero (KL attains its minimum at $d\theta = 0$, so its
+gradient there vanishes), and the first surviving term is quadratic:
+
+$$
+\mathrm{KL}\big(p_\theta \,\Vert\, p_{\theta + d\theta}\big)
+= \tfrac12\, d\theta^\top F(\theta)\, d\theta + O\big(\lVert d\theta \rVert^3\big).
+$$
+
+The matrix $F(\theta)$ appearing in that quadratic form is the **Fisher
+information matrix**. It is the local, infinitesimal counterpart of KL; the
+[Bregman page](/divergences/bregman/) described a divergence as a
+"local-curvature-weighted distance," and $F$ is precisely that curvature expressed
+as a matrix. Geometrically it is the **Riemannian metric on the manifold of
+distributions**: it measures how far, in distribution-space, a step in
+parameter-space actually carries one. Everything on this page follows from this
+single idea.
+
+## The score, and why it has zero mean
+
+The central character is the **score** — the gradient of the log-likelihood with
+respect to the parameters:
+
+$$
+s_\theta(x) = \nabla_\theta \log p_\theta(x).
+$$
+
+It points in the direction that most increases the probability the model assigns to
+$x$. Its essential property is that, averaged over data the model itself generates,
+it is **zero**:
+
+$$
+\mathbb{E}_{x \sim p_\theta}\big[\, s_\theta(x) \,\big]
+= \int p_\theta\, \nabla_\theta \log p_\theta
+= \int \nabla_\theta\, p_\theta
+= \nabla_\theta \!\int p_\theta
+= \nabla_\theta 1 = 0.
+$$
+
+A well-fit model is, on average, not surprised: there is no systematic direction in
+which the data drives the likelihood. Because the mean is zero, the *covariance* of
+the score equals the expectation of its outer product, and this is the Fisher
+matrix.
+
+## Three faces of one matrix
+
+The Fisher information can be written in three equivalent ways:
+
+$$
+F(\theta)
+= \underbrace{\mathbb{E}_{x \sim p_\theta}\!\big[\, \nabla_\theta \log p_\theta\; \nabla_\theta \log p_\theta^{\top} \,\big]}_{\text{(1) covariance of the score}}
+= \underbrace{-\,\mathbb{E}_{x \sim p_\theta}\!\big[\, \nabla_\theta^2 \log p_\theta \,\big]}_{\text{(2) negative expected Hessian}}
+= \underbrace{\nabla_{\theta'}^2\, \mathrm{KL}\big(p_\theta \,\Vert\, p_{\theta'}\big)\big|_{\theta' = \theta}}_{\text{(3) curvature of KL}}.
+$$
+
+These are three perspectives on the same object:
+
+| form | reads as | relevant to |
+| :-- | :-- | :-- |
+| (1) score covariance | how the gradient *varies* across samples | estimation, sampling, an outer-product estimate of $F$ |
+| (2) negative expected Hessian | the average *curvature* of the log-likelihood | optimization — $F$ as a stand-in for the loss Hessian |
+| (3) Hessian of KL | how fast the *distribution* changes per step | geometry, trust regions, the natural gradient |
+
+The equality of (1) and (2) — the **information matrix equality** — is what
+distinguishes $F$: a quantity built from *first* derivatives (squared gradients)
+equals one built from *second* derivatives (a Hessian). It holds under the model,
+in expectation over $y \sim p_\theta$.
+
+<Aside type="caution" title="The empirical Fisher is not the Fisher">
+	Replacing the expectation over model-drawn labels with the *observed* labels in
+	the dataset yields the **empirical Fisher** — less expensive, since those labels
+	are already available, and the quantity that optimizers such as Adam loosely
+	approximate. It equals the true $F$ only at the optimum of a well-specified
+	model, however; away from there the two can differ substantially. When a paper
+	refers to the "Fisher," one should determine which of the two is intended.
+</Aside>
+
+## What the term "information" denotes
+
+The name is literal. The **Cramér–Rao bound** states that for *any* unbiased
+estimator $\hat\theta$ built from data,
+
+$$
+\operatorname{Cov}(\hat\theta) \;\succeq\; F(\theta)^{-1}.
+$$
+
+The inverse Fisher is a lower bound on how precisely the parameters can be
+determined. A large $F$ corresponds to a sharply peaked likelihood — the data
+localizes $\theta$ tightly, so the best achievable error is small. A flat direction
+in $F$ is a direction the data barely constrains. The information is thus the
+inverse of the unavoidable variance.
+
+## A network, neuron by neuron
+
+To make the construction concrete, we now compute $F$ for an explicit network.
+Consider a small binary classifier: two inputs $x = (x_1, x_2)$, two sigmoid
+hidden units, and one sigmoid output.
+
+$$
+z_k = w_{k1} x_1 + w_{k2} x_2 + b_k, \quad a_k = \sigma(z_k), \quad k \in \{1, 2\};
+\qquad
+u = v_1 a_1 + v_2 a_2 + c, \quad p = \sigma(u).
+$$
+
+The output is a Bernoulli variable with bias $p$, so the likelihood is Bernoulli
+and the loss is the negative log-likelihood
+$\ell = -\big[\, y \ln p + (1 - y)\ln(1 - p)\,\big]$. The entire calculation rests
+on a single fact about the output logit $u$:
+
+$$
+\frac{\partial \log p_\theta(y \mid x)}{\partial u} = y - p.
+$$
+
+Every parameter influences the loss *only through* $u$, so by the chain rule its
+score factorizes into the shared residual $(y - p)$ multiplied by a
+parameter-specific **sensitivity** $g_\alpha = \partial u / \partial \theta_\alpha$:
+
+$$
+\frac{\partial \log p_\theta}{\partial \theta_\alpha} = (y - p)\, g_\alpha(x).
+$$
+
+These $g_\alpha$ are precisely the quantities that [backpropagation](/neural-networks/backpropagation/)
+already computes. Consider now the Fisher entry. Because the only randomness in the
+score (at fixed $x$) is the label, and
+$\mathbb{E}_{y \sim p}\big[(y - p)^2\big] = p(1 - p)$ is the Bernoulli variance,
+every entry reduces to
+
+$$
+F_{\alpha\beta}
+= \mathbb{E}_x\Big[\, \mathbb{E}_{y \sim p_\theta}\big[(y - p)^2\big]\, g_\alpha\, g_\beta \,\Big]
+= \mathbb{E}_x\big[\, p(1 - p)\, g_\alpha(x)\, g_\beta(x) \,\big].
+$$
+
+The entire matrix is thus a single expectation of a weighted outer product. Writing
+$\sigma'(z_k) = a_k(1 - a_k)$, the following table gives every parameter of the
+network together with its score, its sensitivity, and its **diagonal Fisher
+entry** — the exact formulas:
+
+| neuron | parameter $\theta_\alpha$ | score $\partial_\alpha \log p_\theta$ | sensitivity $g_\alpha = \partial u / \partial \theta_\alpha$ | Fisher diagonal $F_{\alpha\alpha} = \mathbb{E}_x[\, p(1-p)\, g_\alpha^2\,]$ |
+| :-- | :-- | :-- | :-- | :-- |
+| **output** | $c$ | $(y - p)$ | $1$ | $\mathbb{E}[\, p(1-p) \,]$ |
+| | $v_1$ | $(y - p)\, a_1$ | $a_1$ | $\mathbb{E}[\, p(1-p)\, a_1^2 \,]$ |
+| | $v_2$ | $(y - p)\, a_2$ | $a_2$ | $\mathbb{E}[\, p(1-p)\, a_2^2 \,]$ |
+| **hidden 1** | $b_1$ | $(y - p)\, v_1 a_1(1{-}a_1)$ | $v_1 a_1(1{-}a_1)$ | $\mathbb{E}[\, p(1-p)\, v_1^2 a_1^2(1{-}a_1)^2 \,]$ |
+| | $w_{11}$ | $(y - p)\, v_1 a_1(1{-}a_1)\, x_1$ | $v_1 a_1(1{-}a_1)\, x_1$ | $\mathbb{E}[\, p(1-p)\, v_1^2 a_1^2(1{-}a_1)^2 x_1^2 \,]$ |
+| | $w_{12}$ | $(y - p)\, v_1 a_1(1{-}a_1)\, x_2$ | $v_1 a_1(1{-}a_1)\, x_2$ | $\mathbb{E}[\, p(1-p)\, v_1^2 a_1^2(1{-}a_1)^2 x_2^2 \,]$ |
+| **hidden 2** | $b_2$ | $(y - p)\, v_2 a_2(1{-}a_2)$ | $v_2 a_2(1{-}a_2)$ | $\mathbb{E}[\, p(1-p)\, v_2^2 a_2^2(1{-}a_2)^2 \,]$ |
+| | $w_{21}$ | $(y - p)\, v_2 a_2(1{-}a_2)\, x_1$ | $v_2 a_2(1{-}a_2)\, x_1$ | $\mathbb{E}[\, p(1-p)\, v_2^2 a_2^2(1{-}a_2)^2 x_1^2 \,]$ |
+| | $w_{22}$ | $(y - p)\, v_2 a_2(1{-}a_2)\, x_2$ | $v_2 a_2(1{-}a_2)\, x_2$ | $\mathbb{E}[\, p(1-p)\, v_2^2 a_2^2(1{-}a_2)^2 x_2^2 \,]$ |
+
+Off-diagonal entries are the same expectation with two *different* sensitivities;
+for example, the coupling between the output bias and a first-layer weight is
+$F_{c,\, w_{11}} = \mathbb{E}_x\big[\, p(1-p)\, (1)\,(v_1 a_1(1{-}a_1)\, x_1) \,\big]$.
+Collecting all nine sensitivities into one vector $g(x)$, the full matrix is
+
+$$
+F = \mathbb{E}_x\big[\, p(1 - p)\, g(x)\, g(x)^{\top} \,\big].
+$$
+
+Several conclusions may be drawn from the table. The output bias $c$ carries the
+most information ($g_c = 1$, never attenuated). A first-layer weight's information
+is scaled by $v_k^2 a_k^2(1{-}a_k)^2 x_j^2$, and it **vanishes when the hidden unit
+saturates** ($a_k \to 0$ or $1$, so $a_k(1{-}a_k) \to 0$), when its outgoing weight
+$v_k$ is small, or when its input $x_j$ is negligible. Moreover, for a single
+example $p(1-p)\,g g^\top$ is **rank one**: one data point informs the parameters
+along exactly one direction. Information accumulates only as one averages over
+data.
+
+## End to end: how the information flows
+
+The Bernoulli case is one instance of a pattern that holds for any network whose
+output parameterizes an exponential-family likelihood. Let $f_\theta(x)$ denote the
+network's output (here the scalar logit $u$; for a classifier, the logit vector),
+and $J_\theta(x) = \partial f_\theta / \partial \theta$ its Jacobian. Then
+
+$$
+F(\theta) = \mathbb{E}_x\big[\, J_\theta(x)^{\top}\, \Lambda(x)\, J_\theta(x) \,\big],
+\qquad
+\Lambda(x) = \operatorname{Cov}_{y \sim p_\theta}\big[\, t(y) \,\big],
+$$
+
+where $\Lambda$ is the **Fisher information in output space** — the curvature of the
+NLL measured in the output's own coordinates. It depends only on the output head:
+
+| output head | likelihood | output metric $\Lambda$ |
+| :-- | :-- | :-- |
+| linear (identity) | Gaussian | $\tfrac{1}{\sigma^2}\, I$ |
+| binary (sigmoid) | Bernoulli | $p(1 - p)$ |
+| multiclass (softmax) | Categorical | $\operatorname{diag}(p) - p\, p^{\top}$ |
+
+This $F = \mathbb{E}[J^\top \Lambda J]$ is exactly the **Generalized Gauss–Newton**
+matrix: when the loss is the NLL that matches the output head, the Fisher matrix
+*equals* the Gauss–Newton approximation of the loss Hessian. The information flows
+in three stages, from output to input:
+
+$$
+\underbrace{\Lambda}_{\text{born at the output}}
+\;\xrightarrow{\;\text{carried back through } J\ \text{(the backprop pass)}\;}\;
+\underbrace{J^{\top} \Lambda J}_{\text{per example}}
+\;\xrightarrow{\;\mathbb{E}_x\;}\;
+F
+\;\xrightarrow{\;F^{-1}\;}\;
+\text{natural step}.
+$$
+
+1. **It originates at the output.** $\Lambda$ specifies how sharply the
+   log-likelihood bends per unit change in the network's prediction. A *confident*
+   sigmoid ($p \to 0$ or $1$) has $p(1-p) \to 0$: a sure prediction carries almost
+   no information, because little remains to be learned from it. Uncertainty
+   ($p = \tfrac12$) is where the information is richest.
+2. **It is carried backward by the Jacobian.** The same reverse-mode pass that
+   backprop uses to propagate gradients propagates $\Lambda$ back through $J$. Where
+   a unit is saturated, $\partial a_k / \partial z_k \to 0$ restricts the flow; this
+   is the vanishing-gradient problem, reinterpreted as the statement that
+   information cannot pass through a saturated neuron.
+3. **It accumulates into $F$.** Averaged over data as $J^\top \Lambda J$, the
+   output-space curvature is *pulled back* into a metric on parameter space. $F$ is
+   the distribution's geometry, expressed in the network's own coordinates.
+
+## Why it is a superior gradient
+
+The raw gradient $\nabla_\theta L$ is the steepest-descent direction in **Euclidean
+parameter space**; it treats $\theta$ as if a step of size $1$ meant the same thing
+in every coordinate. Parameter space, however, is an arbitrary chart. Rescaling a
+layer or replacing $\sigma$ with $\log\sigma$ causes the gradient to point in a
+different direction, even though the *model* is unchanged. Plain SGD's trajectory
+therefore depends on a choice of coordinates unrelated to the distributions.
+
+The **natural gradient** addresses this by measuring steepest descent in
+*distribution-space*, under the Fisher metric:
+
+$$
+\tilde\nabla_\theta L = F(\theta)^{-1}\, \nabla_\theta L.
+$$
+
+It is **invariant to reparameterization**: it changes the *distribution* by a fixed
+amount per step, irrespective of the chosen coordinates for $\theta$. The Gaussian
+$\mathcal{N}(\mu, \sigma)$ illustrates the effect concretely. Its Fisher matrix is
+$F = \operatorname{diag}(1/\sigma^2,\; 2/\sigma^2)$, so $F^{-1} = \operatorname{diag}(\sigma^2,\; \sigma^2/2)$,
+and the $\mu$-component of the natural gradient becomes
+
+$$
+\tilde\nabla_\mu L = \sigma^2 \cdot \frac{\mu - \mu^\star}{\sigma^2} = \mu - \mu^\star.
+$$
+
+The $\sigma^2$ in $F^{-1}$ exactly cancels the $1/\sigma^2$ that the raw
+$\mu$-gradient carries. When $\sigma$ is small, the raw gradient encounters a
+$\mu$-slope that grows like $1/\sigma^2$ and takes an excessively large step,
+whereas the natural gradient takes the same measured $(\mu - \mu^\star)$ step at
+every scale. The figure below compares them — vanilla GD in amber, natural GD in
+teal, both minimizing the KL to a fixed target $\mathcal{N}(0,1)$ (the target
+marked at the center):
+
+<NaturalGradient client:visible />
+
+The faint ellipses are the Fisher metric's "unit balls" — the sets of parameter
+steps that all change the distribution by the same KL amount. They are **small
+where $\sigma$ is small** (at low $\sigma$, a small parameter move is a large change
+in distribution) and large at high $\sigma$. Vanilla GD disregards them: from a
+small-$\sigma$ start it overshoots severely, traversing the surface erratically,
+whereas natural GD respects the ellipses and proceeds cautiously precisely where it
+should, moving directly to the target. Setting the start to "wide $\sigma$" reveals
+the opposite failure: vanilla GD now *advances slowly*, because at high $\sigma$ its
+$\mu$-gradient is small.
+
+<Aside type="note" title="This is the step a trust region takes">
+	A fixed-size step in the Fisher metric *is* a fixed-KL step — a constant Fisher
+	ellipse. This is precisely what [TRPO](/reinforcement-learning/trust-regions/)
+	requires when it bounds how far the policy may move: its update
+	$\theta \leftarrow \theta + \sqrt{2\delta / (g^\top F^{-1} g)}\; F^{-1} g$ is a
+	natural-gradient step, scaled to land on the boundary of a KL trust region of
+	size $\delta$. The Fisher matrix is the link between a small step in behavior and
+	the corresponding direction in which to move the weights.
+</Aside>
+
+<Aside type="caution" title="Why you rarely invert F exactly">
+	$F$ is $d \times d$ for $d$ parameters, so inverting it costs $O(d^3)$, which is
+	infeasible when $d$ reaches the millions. In practice the natural gradient is
+	therefore always an approximation: a *diagonal* or empirical Fisher (the
+	[Adam / RMSprop](/neural-networks/optimizers/) family is a coarse relative),
+	**K-FAC**'s Kronecker-factored blocks, or — as in TRPO — solving $F x = g$ with
+	conjugate gradients using only Fisher-vector products, without ever forming $F$.
+</Aside>
+
+## Verification in code
+
+The following first builds the exact 2-2-1 network above and assembles its Fisher
+matrix in two independent ways: the closed form
+$\mathbb{E}_x[\,p(1-p)\, g g^\top\,]$, and the raw definition — sampling labels
+$y \sim p_\theta$ from the *model* and averaging the outer products of the scores.
+The two must agree, and the heatmap shows the information concentrating at the
+output neuron:
+
+<PyCell
+	client:only="react"
+	id="div-fisher-network"
+	title="fisher_network.py"
+	code={`import numpy as np
+np.random.seed(0)
+sig = lambda z: 1.0 / (1.0 + np.exp(-z))
+
+# a tiny 2 -> 2 (sigmoid) -> 1 (sigmoid) classifier, fixed random weights
+W = np.array([[0.9, -0.4], [0.3, 0.8]])    # W[k,j]: into hidden k from input j
+b = np.array([0.1, -0.2])
+v = np.array([1.1, -0.7])                  # output weights from hidden a_k
+c = 0.05
+names = ["w11", "w12", "w21", "w22", "b1", "b2", "v1", "v2", "c"]
+
+def sens(x):
+    # g_alpha = du/dtheta_alpha -- exactly the backprop sensitivities of logit u
+    z = W @ x + b
+    a = sig(z)
+    ap = a * (1 - a)                       # sigma'(z_k) = a_k (1 - a_k)
+    gw = np.array([v[0]*ap[0]*x[0], v[0]*ap[0]*x[1],
+                   v[1]*ap[1]*x[0], v[1]*ap[1]*x[1]])
+    gb = np.array([v[0]*ap[0], v[1]*ap[1]])
+    gv = a.copy()
+    gc = np.array([1.0])
+    return np.concatenate([gw, gb, gv, gc]), sig(v @ a + c)
+
+X = np.random.randn(40000, 2)              # data distribution over inputs
+
+# (1) closed form  F = E_x[ p(1-p) g g^T ]
+F1 = np.zeros((9, 9))
+for x in X:
+    g, p = sens(x)
+    F1 += p * (1 - p) * np.outer(g, g)
+F1 /= len(X)
+
+# (2) by definition: sample y ~ p_theta (the MODEL), average score outer products
+F2 = np.zeros((9, 9))
+for x in X:
+    g, p = sens(x)
+    y = 1.0 if np.random.rand() < p else 0.0
+    s = (y - p) * g                        # the score
+    F2 += np.outer(s, s)
+F2 /= len(X)
+
+print("max |F_closed - F_sampled| =", round(np.max(np.abs(F1 - F2)), 5), " (-> 0)")
+print()
+print("diagonal Fisher entry per parameter  F_aa = E[p(1-p) g_a^2]:")
+for nm, d in zip(names, np.diag(F1)):
+    print("  " + nm.ljust(4), round(float(d), 4))
+
+g0, p0 = sens(X[0])
+print()
+print("rank of one example's p(1-p) g g^T :", np.linalg.matrix_rank(np.outer(g0, g0)), "(always 1)")
+
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots(figsize=(4.7, 4.1))
+im = ax.imshow(F1, cmap="magma")
+ax.set_xticks(range(9)); ax.set_yticks(range(9))
+ax.set_xticklabels(names, rotation=45, fontsize=8); ax.set_yticklabels(names, fontsize=8)
+ax.set_title("Fisher information  F = E[p(1-p) g g^T]", fontsize=9)
+fig.colorbar(im, fraction=0.046)
+fig.tight_layout()
+`}
+/>
+
+We turn next to the natural gradient itself. The following fits
+$\mathcal{N}(\mu, \sigma)$ to a target by forward KL and runs plain gradient descent
+against the $F^{-1}$-preconditioned step from the same start, at the same learning
+rate:
+
+<PyCell
+	client:only="react"
+	id="div-natural-gradient"
+	title="natural_gradient.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+# Fit N(mu, sigma) to the target N(0, 1) by forward KL.
+mt, st = 0.0, 1.0
+def loss(mu, s):
+    A = st**2 + (mt - mu)**2
+    return np.log(s / st) + A / (2 * s**2) - 0.5
+def grad(mu, s):                                  # raw gradient of the KL loss
+    A = st**2 + (mt - mu)**2
+    return np.array([(mu - mt) / s**2, 1.0 / s - A / s**3])
+def natural(mu, s):                               # F^{-1} grad, F = diag(1/s^2, 2/s^2)
+    A = st**2 + (mt - mu)**2
+    return np.array([mu - mt, s / 2 - A / (2 * s)])
+
+def run(step_fn, lr=0.06, n=120, start=(-2.1, 0.4)):
+    p = np.array(start, float); path = [p.copy()]
+    for _ in range(n):
+        p = p - lr * step_fn(*p)
+        p[0] = min(3.0, max(-3.0, p[0]))          # keep inside the plotting box
+        p[1] = min(3.0, max(0.05, p[1]))
+        path.append(p.copy())
+    return np.array(path)
+
+van, nat = run(grad), run(natural)
+lv = np.array([loss(*q) for q in van])
+ln = np.array([loss(*q) for q in nat])
+hit = lambda L: next((i for i, x in enumerate(L) if x < 0.05), len(L))
+print("steps to reach KL < 0.05    vanilla:", hit(lv), "  natural:", hit(ln))
+print("final KL after 120 steps    vanilla:", round(float(lv[-1]), 4), "  natural:", round(float(ln[-1]), 4))
+
+mus = np.linspace(-3, 3, 240); sigs = np.linspace(0.1, 3, 240)
+MU, SG = np.meshgrid(mus, sigs)
+Z = np.minimum(6, loss(MU, SG))
+
+fig, (axL, axR) = plt.subplots(1, 2, figsize=(8.6, 3.6))
+axL.contourf(MU, SG, Z, levels=24, cmap="Greys")
+axL.plot(van[:, 0], van[:, 1], "-o", ms=2.5, lw=1.4, color="#e0b15e", label="vanilla GD")
+axL.plot(nat[:, 0], nat[:, 1], "-o", ms=2.5, lw=1.4, color="#13a89a", label="natural GD")
+axL.plot(0, 1, "w*", ms=13)
+axL.set_xlabel("mu"); axL.set_ylabel("sigma")
+axL.set_title("path on the KL loss surface", fontsize=9); axL.legend(loc="upper right", fontsize=8)
+
+axR.plot(lv, lw=1.6, color="#e0b15e", label="vanilla GD")
+axR.plot(ln, lw=1.6, color="#13a89a", label="natural GD")
+axR.set_yscale("log"); axR.set_xlabel("step"); axR.set_ylabel("KL loss (log)")
+axR.set_title("natural gradient converges far faster", fontsize=9)
+axR.legend(fontsize=8); axR.grid(alpha=0.3)
+fig.tight_layout()
+`}
+/>
+
+<Aside type="tip" title="Try it">
+	In the second cell, changing the start to a wide one — `start=(-2.4, 2.5)` — and
+	re-running yields a different failure mode. Vanilla GD does not diverge; it
+	*advances slowly*, because where $\sigma$ is large its gradient is small. The
+	natural gradient covers the distance in the same small number of steps in either
+	case. This scale-invariance — the same progress in behaviour regardless of the
+	starting point — is the central result.
+</Aside>
+
+## Where this connects
+
+The Fisher matrix is the connection between this track and optimization. It
+underlies the [Bregman](/divergences/bregman/) and
+[KL](/divergences/kl-forward-reverse/) divergences whose curvature it *is*. Beyond
+it, the natural gradient is the basis of the **natural policy gradient** and
+[TRPO](/reinforcement-learning/trust-regions/), where a KL trust region prevents a
+policy from destabilizing itself; and its diagonal, less expensive variants are
+what the [Adam family](/neural-networks/optimizers/) of optimizers approximate
+whenever they rescale a gradient by its own running variance. A single matrix — the
+curvature of KL — proves to be the appropriate way to measure distance for nearly
+everything that learns a distribution.
+
+## References
+
+- Fisher (1922). *On the Mathematical Foundations of Theoretical Statistics*. Philosophical Transactions of the Royal Society A. [doi:10.1098/rsta.1922.0009](https://doi.org/10.1098/rsta.1922.0009)
+- Rao (1945). *Information and the accuracy attainable in the estimation of statistical parameters* (the Cramér–Rao bound). Bulletin of the Calcutta Mathematical Society.
+- Amari (1998). *Natural Gradient Works Efficiently in Learning*. Neural Computation. [doi:10.1162/089976698300017746](https://doi.org/10.1162/089976698300017746)
+- Schraudolph (2002). *Fast Curvature Matrix-Vector Products for Second-Order Gradient Descent* (the Generalized Gauss–Newton matrix). Neural Computation. [doi:10.1162/08997660260028683](https://doi.org/10.1162/08997660260028683)
+- Pascanu & Bengio (2014). *Revisiting Natural Gradient for Deep Networks*. ICLR 2014. [arXiv:1301.3584](https://arxiv.org/abs/1301.3584)
+- Martens (2020). *New Insights and Perspectives on the Natural Gradient Method*. Journal of Machine Learning Research. [arXiv:1412.1193](https://arxiv.org/abs/1412.1193)
+- Martens & Grosse (2015). *Optimizing Neural Networks with Kronecker-factored Approximate Curvature* (K-FAC). ICML 2015. [arXiv:1503.05671](https://arxiv.org/abs/1503.05671)
+- Kunstner, Balles & Hennig (2019). *Limitations of the Empirical Fisher Approximation for Natural Gradient Descent*. NeurIPS 2019. [arXiv:1905.12558](https://arxiv.org/abs/1905.12558)
+- Kakade (2001). *A Natural Policy Gradient*. NeurIPS 2001. [NeurIPS](https://proceedings.neurips.cc/paper/2001/hash/4b86abe48d358ecf194c56c69108433e-Abstract.html)
+- Schulman et al. (2015). *Trust Region Policy Optimization*. ICML 2015. [arXiv:1502.05477](https://arxiv.org/abs/1502.05477)
+- Kingma & Ba (2015). *Adam: A Method for Stochastic Optimization*. ICLR 2015. [arXiv:1412.6980](https://arxiv.org/abs/1412.6980)
+- Tieleman & Hinton (2012). *Lecture 6.5 — RMSprop: Divide the gradient by a running average of its recent magnitude*. Coursera: Neural Networks for Machine Learning. [slides](https://www.cs.toronto.edu/~tijmen/csc321/slides/lecture_slides_lec6.pdf)

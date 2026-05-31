@@ -1,0 +1,244 @@
+---
+title: PG vs EM
+description: The two roads compared — one shared KL-regularized objective, reached either by ascending its gradient or by jumping to its closed-form optimum and imitating it; when each is preferable, and the methods that sit on the seam.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import PyCell from '../../../components/python/PyCell';
+
+The two roads of this track were developed separately and read differently, yet
+they optimize a single objective and target a single optimum. This page sets them
+side by side: what they share, where their mechanisms diverge, and which to prefer
+for a given problem.
+
+## The shared objective
+
+Every method considered here — REINFORCE, [PPO](/reinforcement-learning/trust-regions/),
+and [GRPO](/reinforcement-learning/grpo/) on one side;
+[MPO](/reinforcement-learning/mpo/), [V-MPO](/reinforcement-learning/vmpo/), and
+[AWR](/reinforcement-learning/awr/) on the other — improves the same
+**KL-regularized return**
+
+$$
+J(\pi) \;=\; \mathbb{E}_{a \sim \pi}\big[A(s, a)\big] \;-\; \alpha\, D_{\mathrm{KL}}\!\big(\pi(\cdot \mid s) \,\|\, \pi_{\text{ref}}(\cdot \mid s)\big).
+$$
+
+Collect advantage, but do not depart too far from a reference policy. A single
+objective has a single maximizer — the
+[closed-form optimal policy](/reinforcement-learning/rl-as-inference/)
+
+$$
+\pi^{*}(a \mid s) \;\propto\; \pi_{\text{ref}}(a \mid s)\, \exp\!\big(A(s, a) / \alpha\big).
+$$
+
+Both roads are therefore procedures for moving a parametric policy $\pi_\theta$
+toward this same $\pi^{*}$. They differ only in *how* they move it.
+
+## Two procedures, one summit
+
+**Policy gradient — ascend.** The policy gradient estimates $\nabla_\theta J$ from
+sampled actions and takes a bounded step uphill. The policy is differentiated
+through $\nabla_\theta \log \pi_\theta$; the KL is held in check by a clip
+(PPO, GRPO) or a hard constraint (TRPO). Each update is a small, first-order move,
+and many are required to arrive.
+
+**Expectation maximization — jump and imitate.** The inference road never
+differentiates the policy. It evaluates $\pi^{*}$ in closed form (the E-step) and
+fits $\pi_\theta$ to it by advantage-weighted regression (the M-step). The
+improvement per iteration is the full jump to the optimum of the current bound,
+followed by a supervised projection onto the network.
+
+<Aside type="note" title="Same hill, two ascents">
+	Both procedures address the same KL-regularized hill, whose summit is
+	$\pi^{*}$. One side differentiates its way up, step by bounded step; the other
+	reads off the summit in closed form and regresses onto it. The objective and
+	the optimum are shared; only the route differs.
+</Aside>
+
+## Side by side
+
+| | Policy gradient (PG) | Expectation maximization (EM) |
+| --- | --- | --- |
+| Members | REINFORCE, A2C, TRPO, PPO, GRPO | MPO, V-MPO, AWR, AWAC |
+| Policy update | gradient ascent on $J$ | weighted regression onto $\pi^{*}$ |
+| Differentiates the policy? | yes, through $\nabla_\theta \log \pi$ | no; the policy is only a regression target |
+| Improvement per step | small, first-order | full jump to the bound's optimum |
+| Advantage signal | on-policy $A$, often via GAE | learned $Q$ (MPO) or $A$ (V-MPO, AWR) |
+| Trust region | explicit: clip or KL constraint | the E-step KL penalty, or implicit in regressing on buffered data |
+| Data regime | typically on-policy, fresh rollouts | naturally off-policy: replay or offline |
+| Sample reuse | limited — data goes stale | high — regress repeatedly on a buffer |
+| Principal failure mode | high-variance gradient, destructive steps | inaccurate $Q$ or posterior, over-concentrated weights |
+| Language-model instance | GRPO | DPO, the closed-form limit |
+
+## Where the seam is
+
+The two roads meet at [AWR and AWAC](/reinforcement-learning/awr/). Expand the
+exponentiated-advantage weight that defines the M-step,
+$\exp(A/\alpha) = 1 + A/\alpha + \tfrac{1}{2}(A/\alpha)^2 + \cdots$, and consider
+the regression gradient evaluated at $\pi_\theta = \pi_{\text{ref}}$:
+
+$$
+\nabla_\theta\, \mathbb{E}_{a \sim \pi_{\text{ref}}}\!\big[\exp(A/\alpha)\, \log \pi_\theta(a \mid s)\big] \;=\; \underbrace{\mathbb{E}\big[\nabla_\theta \log \pi_\theta\big]}_{=\,0} \;+\; \frac{1}{\alpha}\, \underbrace{\mathbb{E}\big[A\, \nabla_\theta \log \pi_\theta\big]}_{\text{the policy gradient}} \;+\; \cdots
+$$
+
+The leading term vanishes because the score has zero mean, and the next term is
+exactly the policy gradient, scaled by $1/\alpha$. A single EM step in the
+**high-temperature limit is a policy-gradient step**. The genuine difference is
+finite temperature: EM retains the entire exponential weight — a finite jump
+toward $\pi^{*}$ — whereas PG retains only its linearization, an infinitesimal
+step in the same direction.
+
+## Muesli: one loss, both roads
+
+AWR is a seam of *coincidence* — the two roads turn out to be the same update in a
+limit. [Muesli](https://arxiv.org/abs/2104.06159) (Hessel et al., 2021) is a seam of
+*construction*: rather than letting one road collapse into the other, it takes a term
+from each and descends their sum. Its policy loss is, in the paper's notation,
+
+$$
+\mathcal{L}_{\text{PG}+\text{CMPO}}(\pi, s) \;=\; \underbrace{-\,\mathbb{E}_{a \sim \pi}\big[\hat A(s, a)\big]}_{\text{policy gradient — ascend}} \;+\; \lambda\, \underbrace{D_{\mathrm{KL}}\!\big(\pi_{\text{CMPO}}(\cdot \mid s) \,\big\|\, \pi(\cdot \mid s)\big)}_{\text{EM — regress onto the optimum}}.
+$$
+
+The first term is the policy-gradient road in objective form: its gradient is the
+score-function estimate of $\nabla_\theta J$, here fed by multi-step (Retrace)
+advantages so the signal carries little bias. The second term is the EM road, written
+as a regression onto a target
+
+$$
+\pi_{\text{CMPO}}(a \mid s) \;\propto\; \pi_{\text{prior}}(a \mid s)\, \exp\!\big(\mathrm{clip}(\hat A(s, a),\, -c,\, c)\big),
+$$
+
+where $\pi_{\text{prior}}$ is Muesli's name for the reference policy $\pi_{\text{ref}}$.
+This is exactly the [closed-form optimum](/reinforcement-learning/rl-as-inference/)
+$\pi^{*}$ of the shared objective — reference policy times exponentiated advantage —
+with the advantage normalized and clipped to $[-c, c]$. Minimizing the forward KL
+$D_{\mathrm{KL}}(\pi_{\text{CMPO}} \,\|\, \pi)$ is a weighted maximum-likelihood
+projection onto that target: the [MPO](/reinforcement-learning/mpo/) M-step in all but
+name.
+
+So where AWR is a single update that *is* both roads at high temperature, Muesli is a
+single update that *contains* both roads at any temperature — a gradient term that
+ascends $J$, and a regression term that pulls toward $\pi^{*}$. The clip is what makes
+that combination safe to take in one step: bounding $\hat A$ to $[-c, c]$ bounds the
+target's total-variation distance from the prior by $\tanh(c/2)$, independent of the
+size of the action space (their Theorem 4.1). It is an automatic trust region, playing
+for the EM term the role the clip plays in PPO.
+
+<Aside type="note" title="Why keep the gradient term at all">
+	The CMPO regression on its own is already a complete EM-style method. Muesli keeps
+	the policy-gradient term beside it because the regression target is built from a
+	one-step model value, $\hat q = \hat r_1 + \gamma\, \hat v_1$, while the gradient
+	term can carry a multi-step return. The sum lets the stable, bounded EM jump fix the
+	destination while the lower-bias policy gradient corrects the step — each road
+	supplying what the other lacks.
+</Aside>
+
+## A single objective, two trajectories
+
+The cell runs both methods on the one-dimensional Gaussian bandit from the AWR
+page. The policy gradient ascends the objective with a score-function estimate;
+EM (in its AWR form) jumps to the advantage-weighted mean and settles. They begin
+from the same point and reach the same optimum by visibly different paths.
+
+<PyCell
+	client:only="react"
+	id="pgem-bandit"
+	title="pg_vs_em.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(0)
+
+a_star = 2.0                              # the (unknown) best action
+reward = lambda a: -(a - a_star) ** 2     # reward peaks at a_star
+
+def policy_gradient(iters=60, N=64, sigma=0.8, lr=0.05):
+    mu, traj = -3.0, [-3.0]
+    for _ in range(iters):
+        a    = rng.normal(mu, sigma, N)              # sample from current policy
+        A    = reward(a) - reward(a).mean()          # advantage vs batch baseline
+        grad = (A * (a - mu) / sigma ** 2).mean()    # REINFORCE score-function grad
+        mu  += lr * grad                             # an infinitesimal step uphill
+        traj.append(mu)
+    return np.array(traj)
+
+def em_awr(iters=60, N=64, sigma=0.8, beta=0.5, lr=0.5):
+    mu, traj = -3.0, [-3.0]
+    for _ in range(iters):
+        a       = rng.normal(mu, sigma, N)
+        A       = reward(a) - reward(a).mean()
+        w       = np.minimum(np.exp(A / beta), 20.0) # exponentiated advantage
+        mu_star = (w * a).sum() / w.sum()            # jump to weighted-regression optimum
+        mu     += lr * (mu_star - mu)
+        traj.append(mu)
+    return np.array(traj)
+
+pg, em = policy_gradient(), em_awr()
+
+fig, ax = plt.subplots(figsize=(7, 3.6))
+ax.plot(pg, label="policy gradient  (ascend)")
+ax.plot(em, label="EM / AWR  (jump and imitate)")
+ax.axhline(a_star, ls="--", c="k", lw=1, label="shared optimum")
+ax.set_xlabel("iteration"); ax.set_ylabel("policy mean  mu")
+ax.set_title("two roads, one optimum")
+ax.legend(); ax.grid(alpha=0.3)
+fig.tight_layout()
+
+print("policy gradient  final mu:", round(float(pg[-1]), 3))
+print("EM / AWR         final mu:", round(float(em[-1]), 3), "  (target 2.0)")
+`}
+/>
+
+<Aside type="tip" title="Reading the two paths">
+	Both means converge on the best action, because the objective they climb is
+	the same. The policy gradient traces the noisier, incremental ascent; EM moves
+	in larger jumps and settles sooner. The destination is fixed by the shared
+	objective; the trajectory is fixed by the mechanism.
+</Aside>
+
+## Which to use
+
+The shared objective means the choice is rarely about *what* is optimized and
+almost always about the data regime and the engineering budget.
+
+- **On-policy, fresh rollouts, large-scale infrastructure** favour the policy
+  gradient. The clip is simple and parallelizes cleanly; GRPO is the present
+  standard for RL post-training of language models.
+- **Off-policy, replay reuse, or fully offline data** favour EM. Regressing onto
+  buffered actions reuses data, and in the offline case it cannot pursue the
+  spurious out-of-distribution actions a critic might otherwise chase, because it
+  only ever upweights actions the data already contains.
+- **Sample-scarce or expensive environments** favour EM, for the same reuse.
+- **Preference data with no reward model** favours the limit of the EM road —
+  DPO — which removes the reinforcement-learning loop entirely.
+
+## DPO: the limit of the EM road
+
+When the optimum $\pi^{*} \propto \pi_{\text{ref}}\exp(r/\beta)$ is known in closed
+form, the reward can be recovered from it,
+$r = \beta \log \tfrac{\pi^{*}}{\pi_{\text{ref}}} + \beta \log Z$, and substituted
+into a preference loss; the reward model and the RL loop both cancel. This is
+**Direct Preference Optimization**, the inference road taken to its conclusion. It
+has no policy-gradient counterpart: one cannot dispense with the ascent when the
+ascent *is* the method. The closed form is what makes the shortcut available, and
+the closed form belongs to the EM road.
+
+## The two questions
+
+The track reduces to a single placement test. Confronted with any new
+policy-optimization method, ask:
+
+1. **What advantage signal does it use** — Monte-Carlo returns, a learned $Q$, an
+   on-policy GAE estimate, a group-relative baseline?
+2. **Does it ascend the KL-regularized objective, or regress onto its optimum?**
+
+The first answer locates the method's estimator; the second places it on the
+policy-gradient road, the EM road, or — like AWR — on the seam between them. Nearly
+every modern method falls into place under these two questions.
+
+## References
+
+- Hessel et al. (2021). *Muesli: Combining Improvements in Policy Optimization*. ICML 2021. [arXiv:2104.06159](https://arxiv.org/abs/2104.06159)
+- Munos et al. (2016). *Safe and Efficient Off-Policy Reinforcement Learning* (Retrace). NeurIPS 2016. [arXiv:1606.02647](https://arxiv.org/abs/1606.02647)
+- Mnih et al. (2016). *Asynchronous Methods for Deep Reinforcement Learning* (A3C / A2C). ICML 2016. [arXiv:1602.01783](https://arxiv.org/abs/1602.01783)
+- Rafailov et al. (2023). *Direct Preference Optimization: Your Language Model is Secretly a Reward Model* (DPO). NeurIPS 2023. [arXiv:2305.18290](https://arxiv.org/abs/2305.18290)

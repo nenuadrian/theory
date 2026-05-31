@@ -1,0 +1,115 @@
+---
+title: Positional Encoding
+description: Attention is permutation-equivariant — it ignores order. Sinusoidal positional encodings inject position back into the residual stream.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import PositionalEncoding from '../../../components/viz/PositionalEncoding';
+import PyCell from '../../../components/python/PyCell';
+
+Attention has a notable blind spot. Consider again the formula
+$\operatorname{softmax}(QK^{\top}/\sqrt{d_k})\,V$: it is constructed entirely from dot
+products between token vectors, with no reference to *where* those tokens are situated.
+If the rows of $X$ are permuted, every output is permuted identically; the operation is
+**permutation-equivariant**. To a transformer without further provision, "dog bites man" and "man bites
+dog" are the same bag of tokens.
+
+Order must therefore be reintroduced explicitly, by *adding* a position-dependent vector to each
+token before the first block:
+
+$$
+\tilde{\mathbf{x}}_i = E_{t_i} + \mathrm{PE}_i.
+$$
+
+## Sinusoids of many wavelengths
+
+The original transformer encodes position $pos$ with a bank of sines and cosines
+whose frequencies form a geometric series. For dimension index $i$ in a model of width $d$:
+
+$$
+\mathrm{PE}_{(pos,\,2k)} = \sin\!\left(\frac{pos}{10000^{\,2k/d}}\right),
+\qquad
+\mathrm{PE}_{(pos,\,2k+1)} = \cos\!\left(\frac{pos}{10000^{\,2k/d}}\right).
+$$
+
+Each pair of dimensions behaves as a clock hand turning at its own rate: the lowest
+dimensions cycle every few tokens, while the highest drift slowly over thousands. Taken
+together, they identify each position uniquely — analogous to the digits of a multi-resolution
+binary clock, in which fast and slow hands combine to specify an exact time.
+
+## The stripe structure
+
+The $\mathrm{PE}$ matrix is shown below as a heatmap — positions down, dimensions across,
+teal denoting positive and rose negative. Note how the wavelength stretches from the fast
+oscillation on the left to the slow gradient on the right, and how the curves below
+trace several individual dimensions across position:
+
+<PositionalEncoding client:visible />
+
+A subtle but important property is embedded in these sinusoids: because shifting the
+argument of a sine corresponds to a rotation, $\mathrm{PE}_{pos+k}$ is a **fixed linear function** of
+$\mathrm{PE}_{pos}$ for any offset $k$. The model can therefore learn to attend by
+*relative* position — for instance, three tokens back — through a single linear map, irrespective of
+where in the sequence the token lies.
+
+## A from-scratch implementation
+
+A few lines construct the matrix; the run draws the heatmap, plots three dimensions of
+contrasting frequency, and confirms the relative-position structure — the average
+similarity between two encodings depends primarily on their **offset** rather than their
+absolute positions:
+
+<PyCell
+	client:only="react"
+	id="tf-pe"
+	title="positional_encoding.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+def positional_encoding(L, d, base=10000.0):
+    pos = np.arange(L)[:, None]
+    i   = np.arange(d)[None, :]
+    angle = pos / np.power(base, (2 * (i // 2)) / d)
+    return np.where(i % 2 == 0, np.sin(angle), np.cos(angle))
+
+L, d = 40, 64
+PE = positional_encoding(L, d)
+
+fig, (a1, a2) = plt.subplots(1, 2, figsize=(8.4, 3.4))
+im = a1.imshow(PE, aspect="auto", cmap="RdBu")
+a1.set_xlabel("dimension"); a1.set_ylabel("position"); a1.set_title("PE matrix")
+fig.colorbar(im, ax=a1, fraction=0.046, pad=0.04)
+for dim in (0, 4, 20):
+    a2.plot(PE[:, dim], label=f"dim {dim}")
+a2.set_xlabel("position"); a2.set_title("three dimensions"); a2.legend(fontsize=8)
+a2.grid(alpha=0.3); fig.tight_layout()
+
+# Relative position is (almost) all that matters: PE[pos+k] is a rotation of
+# PE[pos], so the dot product depends mainly on the offset k.
+print("average PE.PE similarity by offset:")
+for k in (0, 1, 4, 16):
+    sims = [PE[p] @ PE[p + k] / d for p in range(L - k)]
+    print(f"   offset {k:2d}: {np.mean(sims):+.3f}")
+`}
+/>
+
+<Aside type="tip" title="Other ways to encode position">
+	Sinusoidal encodings are parameter-free and extrapolate beyond the lengths observed in
+	training, but they are not the only option. **Learned** positional embeddings
+	render $\mathrm{PE}$ a further trainable table. **Rotary** embeddings
+	([RoPE](/transformers/rotary-position-encoding/)), employed in most current LLMs, rotate
+	$Q$ and $K$ by a position-dependent angle so that relative position emerges directly within
+	the dot product — the subject of the next page. The objective is the same — to inform
+	attention of order — pursued by different means.
+</Aside>
+
+Addition is the original means of supplying order, but not the one most current models adopt.
+The next page develops the [rotary](/transformers/rotary-position-encoding/) alternative, which
+folds position directly into the attention dot product rather than into the residual stream.
+
+## References
+
+- Vaswani et al. (2017). *Attention Is All You Need* (sinusoidal positional encoding). NeurIPS 2017. [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)
+- Su et al. (2021). *RoFormer: Enhanced Transformer with Rotary Position Embedding* (RoPE). Neurocomputing. [arXiv:2104.09864](https://arxiv.org/abs/2104.09864)
+- Gehring et al. (2017). *Convolutional Sequence to Sequence Learning* (learned positional embeddings). ICML 2017. [arXiv:1705.03122](https://arxiv.org/abs/1705.03122)
+- Devlin et al. (2019). *BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding* (learned absolute position embeddings). NAACL 2019. [arXiv:1810.04805](https://arxiv.org/abs/1810.04805)

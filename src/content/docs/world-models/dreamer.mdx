@@ -1,0 +1,194 @@
+---
+title: Learning in Imagination
+description: Dreamer learns an actor and a critic entirely on trajectories imagined by the world model — analytic gradients through differentiable dynamics, λ-returns as critic targets, and the robustness machinery of DreamerV3.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import LambdaReturns from '../../../components/viz/LambdaReturns';
+import PyCell from '../../../components/python/PyCell';
+
+[Planning](/world-models/rssm-and-planning/) re-solves an optimization for every
+action and keeps nothing: the thousands of rollouts that produced this step's move
+are discarded before the next. Dreamer (Hafner et al., 2020–2023) amortizes the
+effort. Using the same [RSSM](/world-models/rssm-and-planning/), it learns a
+**policy** (the actor) and a **value function** (the critic) on trajectories the
+model imagines — paying the cost of foresight once, during training, and acting in a
+single forward pass thereafter.
+
+## The imagination loop
+
+Training alternates between fitting the world model on real experience and improving
+behaviour inside it. The behaviour step never touches the environment:
+
+1. **Seed.** Encode a batch of real observations into model states $\{(h, s)\}$ — one
+   posterior per real step, used as starting points.
+2. **Imagine.** From each seed, roll the RSSM forward $H$ steps (typically $H \approx
+   15$) using the *actor* to choose actions and the *prior* to predict states,
+   producing imagined trajectories of states, actions, and predicted rewards — all in
+   latent space, no pixels rendered.
+3. **Evaluate.** Compute a [$\lambda$-return](#the-critic-target) target along each
+   imagined trajectory and regress the critic onto it.
+4. **Improve.** Update the actor to maximize the same $\lambda$-returns.
+
+Because imagination is cheap, an enormous amount of synthetic on-policy experience is
+generated from a small amount of real interaction — the source of Dreamer's sample
+efficiency.
+
+## The critic target
+
+Imagined rollouts cannot run long: [compounding error](/world-models/the-idea/) would
+ruin a horizon of hundreds. Dreamer rolls only $H \approx 15$ steps and caps the
+return with the critic, using the **$\lambda$-return** — the geometric mixture of
+$n$-step returns derived for [GAE](/reinforcement-learning/policy-gradients/),
+
+$$
+G^\lambda_t = r_t + \gamma\Big[(1-\lambda)\,v_\xi(s_{t+1}) + \lambda\,G^\lambda_{t+1}\Big],
+\qquad
+G^\lambda_H = v_\xi(s_H).
+$$
+
+The single parameter $\lambda$ slides the target between two extremes: at $\lambda = 0$
+it is the one-step TD target $r_t + \gamma v_\xi(s_{t+1})$, low in variance but
+inheriting all of the critic's bias; at $\lambda = 1$ it is the full Monte-Carlo
+return over the imagined horizon, unbiased but high in variance. The visualization
+makes the mixture explicit — each $n$-step return rolls $n$ rewards before bootstrapping
+on the critic, and the weights decay geometrically. Dreamer takes $\lambda \approx
+0.95$.
+
+<LambdaReturns client:visible />
+
+## The actor gradient: through the model
+
+How the actor is improved is where a *differentiable* world model pays off in a way
+no [model-free method](/reinforcement-learning/policy-gradients/) can match. Two
+estimators of the gradient of the imagined return are available:
+
+- **Analytic gradients (backprop through the dynamics).** The RSSM, the reward head,
+  and the critic are all differentiable, and the stochastic state is
+  [reparameterized](/world-models/perception/). The imagined return is therefore a
+  differentiable function of the actor's parameters, and $\nabla_\psi G^\lambda$ may be
+  obtained by **backpropagating straight through the learned transitions**. The policy
+  gradient flows along the same path the simulated dynamics took — a luxury available
+  only because the model, unlike the real environment, can be differentiated. This is
+  Dreamer's signature, and it excels for continuous control.
+- **Score-function gradients (REINFORCE).** For discrete actions, where reparameterization
+  does not apply, the [log-derivative trick](/reinforcement-learning/policy-gradients/)
+  estimates the gradient with the $\lambda$-return (minus the critic baseline) as the
+  advantage.
+
+DreamerV3 combines them, adding an **entropy** bonus that keeps exploration alive:
+
+$$
+\mathcal{L}(\psi) = -\,\mathbb{E}_{\text{imagined}}\!\left[\sum_{t} \underbrace{G^\lambda_t}_{\text{analytic}} \;+\; \eta\,\mathrm{H}\!\big[\pi_\psi(\cdot \mid s_t)\big]\right].
+$$
+
+<Aside type="note" title="Why this is the heart of model-based RL">
+	Model-free policy gradients learn from scalar returns alone: the environment is a
+	black box, so the only signal is *how much* reward followed, never *how* an action
+	produced it. A differentiable model opens the box. The actor receives the full
+	Jacobian of imagined outcomes with respect to its actions — not merely that an
+	action was good, but in which direction to perturb it to make the future better.
+	That is a far richer learning signal, and it is the entire reason to want a model
+	that can be differentiated.
+</Aside>
+
+## Making it work everywhere: DreamerV3
+
+The earlier Dreamers were strong but delicate, needing per-domain tuning. DreamerV3's
+contribution is a set of transformations that make a **single** configuration succeed
+across more than 150 tasks — continuous and discrete, dense- and sparse-reward, from
+proprioception to pixels — including the first agent to collect diamonds in Minecraft
+from scratch. The key devices all address the same problem: signals whose scale varies
+wildly across domains and across training.
+
+- **symlog squashing.** Rewards, values, and reconstruction targets are passed through
+  $\operatorname{symlog}(x) = \operatorname{sign}(x)\ln(1 + |x|)$, which compresses
+  large magnitudes while preserving small ones and sign, so the same network handles
+  rewards of $0.01$ and $10{,}000$ without rescaling.
+- **Two-hot discrete critic.** The value is predicted not as a scalar regression but as
+  a distribution over a fixed grid of exponentially spaced bins, with the continuous
+  target encoded across its two nearest bins (a *two-hot* vector). Discrete
+  classification is far more robust to outliers than squared-error regression.
+- **KL balancing and free bits** in the RSSM, **percentile normalization** of returns
+  for the actor, and fixed loss weights — together removing the knobs that previously
+  had to be turned by hand.
+
+The result reframes the field's ambition: not an algorithm tuned to a benchmark, but a
+*single* learner that, given a new environment, simply works.
+
+## The λ-return, quantified
+
+Why intermediate $\lambda$? The cell below answers it empirically. Along a rollout with
+noisy rewards and a deliberately **biased** critic, it estimates each $\lambda$-return
+target over thousands of sampled realizations and decomposes its error into bias and
+variance. TD(0) is dominated by the critic's bias; Monte Carlo by reward variance; the
+minimum mean-squared error sits in between — which is why Dreamer's $\lambda$ is high
+but not $1$.
+
+<PyCell
+	client:only="react"
+	id="wm-lambda-return"
+	title="lambda_returns.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+np.seterr(all="ignore")
+rng = np.random.default_rng(0)
+
+# An imagined rollout of length H, terminal at the end. Mean per-step rewards;
+# the realized rewards are noisy. The critic is biased low, as a partially-trained
+# value function would be.
+H, gamma = 12, 0.95
+rbar = 0.5 + 0.4 * np.sin(np.arange(H) / 2.0)     # mean rewards
+sigma_r = 0.9                                      # reward noise
+c_bias = 0.6                                       # critic = 0.6 * true value
+
+Vtrue = np.zeros(H + 1)                             # true values, V*(s_H) = 0
+for t in range(H - 1, -1, -1):
+    Vtrue[t] = rbar[t] + gamma * Vtrue[t + 1]
+vhat = c_bias * Vtrue.copy(); vhat[H] = 0.0        # the biased critic
+
+def lambda_return(r, lam):                          # the Dreamer recursion
+    G = np.zeros(H + 1); G[H] = vhat[H]
+    for t in range(H - 1, -1, -1):
+        G[t] = r[t] + gamma * ((1 - lam) * vhat[t + 1] + lam * G[t + 1])
+    return G[0]
+
+lams = np.linspace(0, 1, 21)
+S = 4000
+bias2, var = [], []
+for lam in lams:
+    g = np.array([lambda_return(rbar + sigma_r * rng.standard_normal(H), lam) for _ in range(S)])
+    bias2.append((g.mean() - Vtrue[0]) ** 2); var.append(g.var())
+bias2, var = np.array(bias2), np.array(var); mse = bias2 + var
+best = lams[mse.argmin()]
+print(f"V*(s0) = {Vtrue[0]:.3f}")
+print(f"TD(0):  MSE = {mse[0]:.2f}   (bias-dominated)")
+print(f"MC:     MSE = {mse[-1]:.2f}   (variance-dominated)")
+print(f"best lambda = {best:.2f}  ->  MSE = {mse.min():.2f}")
+
+fig, ax = plt.subplots(figsize=(6, 3.4))
+ax.plot(lams, bias2, c="#fb923c", lw=2, label="bias$^2$ (critic error)")
+ax.plot(lams, var, c="#2dd4bf", lw=2, label="variance (reward noise)")
+ax.plot(lams, mse, c="#e5e5e5", lw=2.5, label="MSE = bias$^2$ + variance")
+ax.axvline(best, ls="--", c="#888888", lw=1)
+ax.set_xlabel("lambda    (0 = TD(0),   1 = Monte Carlo)"); ax.set_ylabel("error")
+ax.legend(fontsize=8); ax.set_title("the lambda-return trades bias against variance")
+fig.tight_layout()
+`}
+/>
+
+Dreamer and PlaNet share one commitment that the next page abandons. Both learn the
+model by **reconstructing observations** — the ELBO's first term is pixel
+reconstruction, and a large part of the network's capacity goes to rendering. When the
+goal is to *act*, predicting every pixel is a detour. The
+[final page](/world-models/value-equivalence/) asks what a model owes the agent if it
+is freed from that obligation.
+
+## References
+
+- Hafner et al. (2020). *Dream to Control: Learning Behaviors by Latent Imagination* (Dreamer). ICLR 2020. [arXiv:1912.01603](https://arxiv.org/abs/1912.01603)
+- Hafner et al. (2023). *Mastering Diverse Domains through World Models* (DreamerV3; symlog, two-hot critic). [arXiv:2301.04104](https://arxiv.org/abs/2301.04104)
+- Schulman et al. (2016). *High-Dimensional Continuous Control Using Generalized Advantage Estimation* (GAE; the λ-return). ICLR 2016. [arXiv:1506.02438](https://arxiv.org/abs/1506.02438)
+- Sutton (1988). *Learning to Predict by the Methods of Temporal Differences* (TD(λ)). Machine Learning. [doi:10.1007/BF00115009](https://doi.org/10.1007/BF00115009)
+- Williams (1992). *Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning* (REINFORCE / score-function gradients). Machine Learning. [doi:10.1007/BF00992696](https://doi.org/10.1007/BF00992696)
+- Bellemare, Dabney & Munos (2017). *A Distributional Perspective on Reinforcement Learning* (the two-hot / distributional critic). ICML 2017. [arXiv:1707.06887](https://arxiv.org/abs/1707.06887)
