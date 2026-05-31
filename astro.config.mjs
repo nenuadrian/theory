@@ -6,12 +6,46 @@ import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 
+// The site is served from this sub-path (GitHub Pages project page).
+const BASE = '/theory/';
+
+/**
+ * Astro does not prepend `base` to hardcoded root-absolute links authored in
+ * Markdown/MDX content — only to its own generated navigation. Our pages link
+ * to each other with root-absolute paths (e.g. `/neural-networks/the-neuron/`),
+ * which resolve against the domain root and 404 under a sub-path deploy. This
+ * remark plugin prepends BASE to any in-content link/image URL that starts with
+ * `/` (skipping protocol-relative `//…` and URLs already under BASE). JSX links
+ * such as the Playground anchor use import.meta.env.BASE_URL and are parsed as
+ * JSX nodes, so they are not matched here.
+ */
+function remarkBasePrefix() {
+	const prefix = BASE.replace(/\/$/, '');
+	/** @param {string} url */
+	const withBase = (url) =>
+		typeof url === 'string' &&
+		url.startsWith('/') &&
+		!url.startsWith('//') &&
+		url !== prefix &&
+		!url.startsWith(`${prefix}/`)
+			? prefix + url
+			: url;
+	/** @param {any} node */
+	const visit = (node) => {
+		if (node && (node.type === 'link' || node.type === 'definition' || node.type === 'image') && node.url) {
+			node.url = withBase(node.url);
+		}
+		if (node && node.children) node.children.forEach(visit);
+	};
+	return (/** @type {any} */ tree) => visit(tree);
+}
+
 // https://astro.build/config
 export default defineConfig({
 	site: 'https://nenuadrian.github.io',
-	base: '/theory/',
+	base: BASE,
 	markdown: {
-		remarkPlugins: [remarkGfm, remarkMath],
+		remarkPlugins: [remarkGfm, remarkMath, remarkBasePrefix],
 		rehypePlugins: [rehypeKatex],
 	},
 	vite: {
