@@ -6,6 +6,8 @@ description: A scratchpad notebook running entirely in your browser — plus a f
 import { Aside } from '@astrojs/starlight/components';
 import Notebook from '../../components/python/Notebook';
 
+export const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 A scratchpad for extending any experiment. The cells below share **one Python
 kernel**: a definition introduced in one cell is available in the next, as in a
 notebook. NumPy, Matplotlib, pandas, SciPy, scikit-learn, and SymPy are each
@@ -31,6 +33,6 @@ browser.
 <Aside type="tip" title="A complete IDE is also available">
 	For a complete Jupyter environment, including a file browser, multiple
 	notebooks, and saving of `.ipynb` files, open the full{' '}
-	<a href="/jupyter/lab/index.html" target="_blank" rel="noopener">JupyterLab ↗</a>{' '}
+	<a href={`${base}/jupyter/lab/index.html`} target="_blank" rel="noopener">JupyterLab ↗</a>{' '}
 	(it is larger and requires several seconds to initialize).
 </Aside>

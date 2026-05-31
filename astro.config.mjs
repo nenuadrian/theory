@@ -8,6 +8,8 @@ import rehypeKatex from 'rehype-katex';
 
 // https://astro.build/config
 export default defineConfig({
+	site: 'https://nenuadrian.github.io',
+	base: '/theory/',
 	markdown: {
 		remarkPlugins: [remarkGfm, remarkMath],
 		rehypePlugins: [rehypeKatex],
