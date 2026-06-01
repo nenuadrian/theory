@@ -5,6 +5,7 @@ description: The chain rule applied systematically over a computational graph �
 
 import { Aside } from '@astrojs/starlight/components';
 import ComputeGraph from '../../../components/viz/ComputeGraph';
+import NetworkTrainer from '../../../components/viz/NetworkTrainer';
 import PyCell from '../../../components/python/PyCell';
 
 Backpropagation is the chain rule, applied with systematic bookkeeping. The
@@ -39,6 +40,35 @@ and $\partial L/\partial b$ are equal: an **add** node copies the upstream gradi
 to both inputs. A **multiply** node ($n = w\cdot x$) routes the gradient to each
 input scaled by the *other* input, which is why $\partial L/\partial w = \partial
 L/\partial n \cdot x$.
+
+## A complete network, one step at a time
+
+The single neuron above isolates the mechanism; a network merely repeats it. The
+visualization below trains a genuine **2 → 3 → 1** network — two inputs, a hidden
+layer of three $\tanh$ units, a sigmoid output — on the **XOR** problem, which no
+linear model can solve. Each training iteration is decomposed into nine
+inspectable phases: the input is loaded; the forward pass computes each
+pre-activation $z^{(\ell)}$ and activation $a^{(\ell)}$ in turn; the loss is
+formed; the backward pass propagates the errors $\delta^{(\ell)}$ and accumulates
+$\partial L/\partial W^{(\ell)}$; and gradient descent updates every parameter.
+
+Pressing **step** advances one phase, and the panel beneath prints the exact
+arithmetic — every weight, every product, every gradient — that produced the
+values shown on the diagram. **play** runs the phases in sequence; the
+**iteration** slider scrubs across all 600 training steps. The heat map at the
+right is the network's output $\hat{y}$ over the input square — observe it resolve
+from a featureless wash into the XOR checkerboard as the loss curve descends.
+
+<NetworkTrainer client:visible />
+
+Three points merit emphasis. First, the backward pass consumes the activations
+the forward pass stored: $\partial L/\partial W^{(2)}_j = \delta^{(2)} a^{(1)}_j$
+requires precisely the $a^{(1)}_j$ computed on the way in, which is why a forward
+pass must cache its activations. Second, a parameter's gradient is scaled by its
+input, so on the example $x = (0, 0)$ every weight feeding the hidden layer
+receives zero gradient on that step, while the biases still move. Third, the
+update is entirely local: each parameter shifts by $-\eta\,\partial L/\partial
+\theta$, and no parameter requires any information beyond its own gradient.
 
 ## Verification in code
 

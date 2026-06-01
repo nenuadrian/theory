@@ -565,6 +565,140 @@ button,
 	min-height: 1.5em;
 }
 
+/* ----- NetworkTrainer (full-network step-through) ----------------------- */
+.nt {
+	flex: 1 1 32rem;
+	min-width: 18rem;
+	max-width: 100%;
+	height: auto;
+}
+.nt__cap {
+	fill: var(--sl-color-gray-4);
+	font-family: var(--sl-font-mono);
+	font-size: 11px;
+}
+.nt__node {
+	fill: var(--sl-color-bg);
+	stroke: var(--sl-color-hairline);
+	stroke-width: 1.25;
+	transition: stroke 0.18s ease, stroke-width 0.18s ease;
+}
+.nt__node--hid { fill: var(--sl-color-bg-nav); }
+.nt__node--out { fill: var(--sl-color-bg-nav); }
+.nt__node--loss { fill: var(--sl-color-bg); }
+.nt__node--on {
+	stroke: #60d3c5;
+	stroke-width: 2.5;
+}
+.nt__nlabel {
+	fill: var(--sl-color-text-accent);
+	font-family: var(--sl-font-mono);
+	font-size: 13px;
+	font-weight: 600;
+}
+.nt__nval {
+	fill: var(--sl-color-text);
+	font-family: var(--sl-font-mono);
+	font-size: 12px;
+}
+.nt__ngrad {
+	fill: #fb923c;
+	font-family: var(--sl-font-mono);
+	font-size: 10px;
+}
+.nt__wpill {
+	fill: var(--sl-color-bg-nav);
+	opacity: 0.92;
+}
+.nt__wt {
+	fill: var(--sl-color-gray-3);
+	font-family: var(--sl-font-mono);
+	font-size: 9px;
+}
+.nt__phasebar {
+	display: flex;
+	align-items: baseline;
+	gap: 0.5rem;
+}
+.nt__phasekey {
+	font-family: var(--sl-font-mono);
+	font-size: 0.7rem;
+	color: var(--sl-color-bg);
+	background: #60d3c5;
+	padding: 0.05rem 0.35rem;
+	font-weight: 600;
+}
+.nt__phasetitle {
+	font-size: 0.8rem;
+	color: var(--sl-color-text-accent);
+	line-height: 1.3;
+}
+.nt__ex {
+	font-size: 0.72rem;
+	color: var(--sl-color-gray-3);
+	margin: 0;
+	line-height: 1.5;
+}
+.nt__loss { color: var(--sl-color-text-accent); }
+.nt__minis {
+	display: flex;
+	gap: 0.8rem;
+	flex-wrap: wrap;
+	align-items: flex-start;
+}
+.nt__minis > div {
+	display: flex;
+	flex-direction: column;
+	gap: 0.2rem;
+}
+.nt__heat {
+	width: 104px;
+	height: 104px;
+	border: 1px solid var(--sl-color-hairline);
+}
+.nt__spark {
+	width: 168px;
+	height: 46px;
+	border: 1px solid var(--sl-color-hairline);
+	background: var(--sl-color-bg);
+}
+.nt__minilabel {
+	font-size: 0.62rem;
+	color: var(--sl-color-gray-4);
+}
+.nt__calc {
+	margin-top: 1rem;
+	padding-top: 0.85rem;
+	border-top: 1px solid var(--sl-color-hairline);
+	font-family: var(--sl-font-mono);
+	font-size: 0.78rem;
+	line-height: 1.5;
+}
+.nt__ctitle {
+	color: var(--sl-color-text-accent);
+	font-weight: 600;
+	margin-bottom: 0.45rem;
+}
+.nt__crow {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	flex-wrap: wrap;
+	padding: 0.12rem 0;
+	border-bottom: 1px solid color-mix(in srgb, var(--sl-color-hairline) 45%, transparent);
+}
+.nt__cform { color: var(--sl-color-gray-2); }
+.nt__cres {
+	color: #60d3c5;
+	white-space: nowrap;
+}
+.nt__cnote {
+	font-size: 0.72rem;
+	color: var(--sl-color-gray-4);
+	margin-top: 0.5rem;
+	line-height: 1.45;
+}
+
 /* ----- react-three-fiber stage ------------------------------------------ */
 .r3f-stage {
 	position: relative;
