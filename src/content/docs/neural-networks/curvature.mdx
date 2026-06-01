@@ -1,0 +1,200 @@
+---
+title: Curvature & the Hessian
+description: First, second, and third order — the gradient, the Hessian, and the third-derivative tensor, through the Taylor expansion of a loss surface.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import CurvatureField from '../../../components/viz/CurvatureField';
+import TaylorSurface3D from '../../../components/viz/TaylorSurface3D';
+import PyCell from '../../../components/python/PyCell';
+
+Gradient descent uses a single piece of local information: the gradient $\nabla
+f$, the direction of steepest ascent. That is the **first-order** picture. But a
+loss surface also *curves*, and how it curves — captured by the **Hessian** and,
+beyond it, the **third-derivative tensor** — determines how the gradient itself
+changes from step to step, how quickly descent converges, and whether a critical
+point is a minimum, a maximum, or a saddle.
+
+These objects are precisely the successive terms of the **Taylor expansion** about
+a point $p$:
+
+$$
+f(p + \Delta)
+= f(p)
++ \underbrace{\nabla f(p)^\top \Delta}_{\text{1st: gradient}}
++ \underbrace{\tfrac12\, \Delta^\top H(p)\, \Delta}_{\text{2nd: Hessian}}
++ \underbrace{\tfrac16 \textstyle\sum_{i,j,k} \mathcal{T}_{ijk}\, \Delta_i \Delta_j \Delta_k}_{\text{3rd: tensor}}
++ O(\|\Delta\|^4).
+$$
+
+The gradient is a vector, $\nabla f \in \mathbb{R}^n$. The Hessian is the matrix of
+second partials, $H_{ij} = \partial^2 f / \partial x_i \partial x_j$. The
+third-order object $\mathcal{T}_{ijk} = \partial^3 f / \partial x_i \partial x_j
+\partial x_k$ is a rank-3 **tensor** — it records how the curvature itself bends.
+Each term is one order more expensive and one order more accurate.
+
+## First and second order: the gradient and the Hessian
+
+The field below is the surface $f(x, y) = \sin x \cdot \cos y$, viewed from above
+as filled contours. Drag the point. The teal arrow is the gradient $\nabla f$. The
+cross and ellipse are the Hessian, displayed through its **eigendecomposition**
+$H = \sum_i \lambda_i\, u_i u_i^\top$: the eigenvectors $u_i$ are the principal
+curvature directions, and the eigenvalues $\lambda_i$ are the curvatures along
+them — drawn teal where positive (the surface curves upward, a bowl) and pink
+where negative (a dome).
+
+<CurvatureField client:load />
+
+Three readings of the Hessian follow directly:
+
+- **Definiteness classifies the point.** Both eigenvalues positive ($H \succ 0$) is
+  a convex bowl; both negative, a concave dome; mixed signs, a **saddle**. At a
+  critical point ($\nabla f = 0$) this is the second-derivative test.
+- **The condition number $\kappa = |\lambda_{\max}| / |\lambda_{\min}|$** measures
+  anisotropy — how elongated the ellipse is. Large $\kappa$ is an ill-conditioned
+  ravine, and it is exactly what makes plain gradient descent zig-zag, since a
+  single scalar step size cannot suit both a steep and a shallow direction at once.
+- **Newton's method rescales by curvature.** Minimizing the quadratic model
+  $m(\Delta) = f + \nabla f^\top \Delta + \tfrac12 \Delta^\top H \Delta$ gives the
+  step $\Delta^\star = -H^{-1} \nabla f$ (violet). Where the bowl is well-behaved it
+  steps straight to the bottom, in one move, regardless of conditioning — whereas
+  the plain gradient step $-\nabla f$ (dashed) merely points downhill.
+
+The same operator that helps near a minimum is treacherous elsewhere: $-H^{-1}
+\nabla f$ is attracted to *any* critical point, saddles and maxima included. In the
+high-dimensional non-convex landscapes of deep networks, saddle points vastly
+outnumber minima, which is why naive second-order steps must be modified before
+they can be trusted (Dauphin et al., 2014).
+
+## The Taylor tower in three dimensions
+
+The Hessian is the second rung of a ladder. The surface below renders all three
+approximations at once: the **tangent plane** (order 1, the gradient), the
+**tangent paraboloid** (order 2, the Hessian), and the **cubic** correction
+(order 3, the tensor $\mathcal{T}$). Toggle each, grow the patch radius, and move
+the expansion point.
+
+<TaylorSurface3D client:only="react" />
+
+Two behaviors are worth provoking. First, as the patch grows the plane peels away
+from the surface first, the paraboloid next, the cubic last: the remainder of a
+$k$-th order model is $O(\|\Delta\|^{k+1})$, reported live as the RMS error — each
+order is roughly one power of $r$ tighter. Second, select the **monkey saddle**
+$x^3 - 3xy^2$ and sit at the origin: there $\nabla f = 0$ *and* $H = 0$, so the
+plane and the paraboloid are both perfectly flat and reconstruct nothing. Only the
+third-order term carries the three-fold shape — a case where curvature is silent
+and the leading geometry is entirely third order.
+
+<Aside type="note" title="Why we usually stop at second order">
+	For $n$ parameters the gradient has $n$ entries, the Hessian $n^2$, and the
+	third-order tensor $n^3$. For a network with millions of parameters even forming
+	$H$ is out of reach, let alone $\mathcal{T}$. Practical second-order methods never
+	build the Hessian explicitly: they use **Hessian–vector products** $H v$, computed
+	at the cost of a few gradients (Pearlmutter, 1994), inside truncated-Newton or
+	**Hessian-free** schemes (Martens, 2010). The third-order tensor is essentially
+	never used directly — it appears here to make the structure of the Taylor series
+	concrete.
+</Aside>
+
+## In code
+
+The following cell computes the gradient, Hessian, and full third-order tensor of
+$f(x, y) = \sin x \cos y$ from their closed forms, checks the tensor against a
+finite-difference estimate, and then measures the RMS error of each Taylor model
+over a shrinking patch. The fitted log–log slopes recover the theoretical orders
+$k + 1$ almost exactly:
+
+<PyCell
+	client:only="react"
+	id="curv-taylor"
+	title="taylor_orders.py"
+	code={`import numpy as np
+import matplotlib.pyplot as plt
+
+# f(x, y) = sin(x) cos(y) — exact derivatives to third order
+def f(x, y): return np.sin(x) * np.cos(y)
+
+def gradient(x, y):
+    return np.array([np.cos(x) * np.cos(y), -np.sin(x) * np.sin(y)])
+
+def hessian(x, y):
+    return np.array([[-np.sin(x) * np.cos(y), -np.cos(x) * np.sin(y)],
+                     [-np.cos(x) * np.sin(y), -np.sin(x) * np.cos(y)]])
+
+# third-order tensor T[i,j,k] = d3f / dxi dxj dxk  (2x2x2, fully symmetric)
+def tensor3(x, y):
+    fxxx = -np.cos(x) * np.cos(y)
+    fxxy =  np.sin(x) * np.sin(y)
+    fxyy = -np.cos(x) * np.cos(y)
+    fyyy =  np.sin(x) * np.sin(y)
+    T = np.zeros((2, 2, 2))
+    T[0,0,0] = fxxx
+    T[0,0,1] = T[0,1,0] = T[1,0,0] = fxxy
+    T[0,1,1] = T[1,0,1] = T[1,1,0] = fxyy
+    T[1,1,1] = fyyy
+    return T
+
+p = np.array([0.9, 0.6])
+g, H, T = gradient(*p), hessian(*p), tensor3(*p)
+
+# check the tensor by numerically differentiating the Hessian
+h, e = 1e-4, np.eye(2)
+Tnum = np.zeros((2, 2, 2))
+for k in range(2):
+    Tnum[:, :, k] = (hessian(*(p + h*e[k])) - hessian(*(p - h*e[k]))) / (2*h)
+
+print("point      ", p.tolist())
+print("gradient   ", np.round(g, 4).tolist())
+print("Hessian    ", np.round(H, 4).tolist())
+print("3rd tensor ", np.round(T, 4).tolist())
+print("tensor FD check, max error =", float(np.abs(T - Tnum).max()))
+
+# k-th order Taylor model about p, at offset d
+def taylor(d, k):
+    z = f(*p)
+    if k >= 1: z = z + g @ d
+    if k >= 2: z = z + 0.5 * d @ H @ d
+    if k >= 3: z = z + (T * d[:,None,None] * d[None,:,None] * d[None,None,:]).sum() / 6
+    return z
+
+# RMS remainder over a ring of radius r; slope of log-error vs log-r is k+1
+radii = np.logspace(-1.4, 0.0, 12)
+rms = {k: [] for k in (1, 2, 3)}
+for r in radii:
+    th = np.linspace(0, 2*np.pi, 60)
+    ring = np.stack([r*np.cos(th), r*np.sin(th)], 1)
+    for k in (1, 2, 3):
+        err = [f(*(p + d)) - taylor(d, k) for d in ring]
+        rms[k].append(np.sqrt(np.mean(np.square(err))))
+
+print()
+print("order   fitted slope   (theory k+1)")
+for k in (1, 2, 3):
+    s = np.polyfit(np.log(radii), np.log(rms[k]), 1)[0]
+    print("  " + str(k) + "         " + str(round(float(s), 2)) + "            " + str(k + 1))
+
+fig, ax = plt.subplots(figsize=(5.6, 3.6))
+for k, c in zip((1, 2, 3), ("#2aa198", "#b8860b", "#7a5cc8")):
+    ax.loglog(radii, rms[k], "o-", color=c, label="order " + str(k))
+ax.set_xlabel("patch radius r"); ax.set_ylabel("RMS Taylor error")
+ax.set_title("a k-th order model has O(r^(k+1)) error")
+ax.grid(True, which="both", alpha=0.25); ax.legend()
+fig.tight_layout()
+`}
+/>
+
+<Aside type="tip" title="Connecting back to optimizers">
+	The [optimizers](/neural-networks/optimizers/) seen previously can each be read as
+	a cheap stand-in for curvature. Momentum averages past gradients to smooth
+	ill-conditioned ravines; Adam and RMSProp divide by a running estimate of each
+	coordinate's gradient magnitude — a **diagonal** approximation to $H^{-1}$. They
+	approximate the Newton step coordinate-by-coordinate, without ever forming the
+	Hessian.
+</Aside>
+
+## References
+
+- Nocedal & Wright (2006). *Numerical Optimization* (2nd ed.; Newton, quasi-Newton, and trust-region methods). Springer. [doi:10.1007/978-0-387-40065-5](https://doi.org/10.1007/978-0-387-40065-5)
+- Pearlmutter (1994). *Fast Exact Multiplication by the Hessian*. Neural Computation 6(1), 147–160. [doi:10.1162/neco.1994.6.1.147](https://doi.org/10.1162/neco.1994.6.1.147)
+- Dauphin, Pascanu, Gulcehre, Cho, Ganguli & Bengio (2014). *Identifying and attacking the saddle point problem in high-dimensional non-convex optimization*. NeurIPS 2014. [arXiv:1406.2572](https://arxiv.org/abs/1406.2572)
+- Martens (2010). *Deep learning via Hessian-free optimization*. ICML 2010, 735–742. [pdf](https://www.cs.toronto.edu/~jmartens/docs/Deep_HessianFree.pdf)

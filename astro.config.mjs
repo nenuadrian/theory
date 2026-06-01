@@ -101,6 +101,7 @@ export default defineConfig({
 						{ label: 'The Forward Pass', slug: 'neural-networks/forward-pass' },
 						{ label: 'Backpropagation', slug: 'neural-networks/backpropagation' },
 						{ label: 'Gradient Descent', slug: 'neural-networks/gradient-descent' },
+						{ label: 'Curvature & the Hessian', slug: 'neural-networks/curvature' },
 						{ label: 'Optimizers', slug: 'neural-networks/optimizers' },
 						{ label: 'Loss: NLL vs MSE', slug: 'neural-networks/loss-functions' },
 					],

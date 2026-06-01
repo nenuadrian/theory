@@ -699,6 +699,69 @@ button,
 	line-height: 1.45;
 }
 
+/* ----- CurvatureField + TaylorSurface3D --------------------------------- */
+.cf__readout {
+	font-family: var(--sl-font-mono);
+	font-size: 0.76rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.28rem;
+	padding: 0.6rem 0;
+	border-top: 1px solid var(--sl-color-hairline);
+	border-bottom: 1px solid var(--sl-color-hairline);
+}
+.cf__line {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	align-items: baseline;
+}
+.cf__line > span {
+	color: var(--sl-color-gray-3);
+}
+.cf__line > b {
+	color: var(--sl-color-text);
+	font-weight: 600;
+}
+.cf__matwrap {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 1rem;
+}
+.cf__matlabel {
+	color: var(--sl-color-gray-3);
+}
+.cf__mat {
+	display: grid;
+	grid-template-columns: 3.2rem 3.2rem;
+	gap: 0.05rem 0.5rem;
+	padding: 0.15rem 0.5rem;
+	text-align: right;
+	color: var(--sl-color-text);
+	border-left: 2px solid var(--sl-color-gray-4);
+	border-right: 2px solid var(--sl-color-gray-4);
+}
+.cf__kind {
+	color: var(--sl-color-text-accent) !important;
+}
+.cf__orders {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin-top: 0.9rem;
+}
+.cf__orders .viz__btn {
+	display: flex;
+	flex-direction: column;
+	gap: 0.15rem;
+	align-items: flex-start;
+}
+.cf__err {
+	font-size: 0.64rem;
+	color: var(--sl-color-gray-4);
+}
+
 /* ----- react-three-fiber stage ------------------------------------------ */
 .r3f-stage {
 	position: relative;
