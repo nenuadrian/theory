@@ -34,7 +34,7 @@ parameters $\theta$ of a policy $\pi_\theta(a\mid s)$. The algorithms differ in
   **E-step**), then trains the network to imitate it by weighted regression (an
   **M-step**), and repeats. This is the **expectation-maximization** route — the
   classical EM algorithm, specialized to control:
-  `EM → RL-as-inference → MPO → V-MPO → AWR`.
+  `RL-as-inference → MPO → V-MPO → AWR`.
 
 The central result of the track is that **the two routes converge**. Both keep
 the updated policy close to a reference policy in **KL divergence**. PPO and GRPO
@@ -74,23 +74,20 @@ by setting them side by side.
 ### The expectation-maximization road
 
 <CardGrid>
-	<Card title="04 · Expectation Maximization" icon="seti:default">
-		[The canonical EM algorithm.](/reinforcement-learning/expectation-maximization/)
-		Latent variables, the evidence lower bound, and the monotone E/M alternation.
+	<Card title="04 · RL as Inference" icon="seti:default">
+		[The canonical EM algorithm, then the EM view of control.](/reinforcement-learning/rl-as-inference/)
+		Latent variables, the evidence lower bound, the monotone E/M alternation, and
+		the closed-form optimal policy it yields.
 	</Card>
-	<Card title="05 · RL as Inference" icon="seti:default">
-		[The EM view of control.](/reinforcement-learning/rl-as-inference/) The
-		KL-regularized objective and its closed-form optimal policy.
-	</Card>
-	<Card title="06 · MPO" icon="seti:default">
+	<Card title="05 · MPO" icon="seti:default">
 		[EM, made concrete.](/reinforcement-learning/mpo/) A reweighted E-step with
 		a temperature dual, and a trust-region M-step.
 	</Card>
-	<Card title="07 · V-MPO" icon="seti:default">
+	<Card title="06 · V-MPO" icon="seti:default">
 		[On-policy MPO at scale.](/reinforcement-learning/vmpo/) Advantages instead
 		of $Q$, top-half filtering, and the same dual.
 	</Card>
-	<Card title="08 · AWR & AWAC" icon="seti:default">
+	<Card title="07 · AWR & AWAC" icon="seti:default">
 		[The entire family in three lines.](/reinforcement-learning/awr/)
 		Advantage-weighted regression, the minimal form of the loop.
 	</Card>
@@ -99,7 +96,7 @@ by setting them side by side.
 ### The two roads compared
 
 <CardGrid>
-	<Card title="09 · PG vs EM" icon="seti:default">
+	<Card title="08 · PG vs EM" icon="seti:default">
 		[One objective, two procedures.](/reinforcement-learning/pg-vs-em/) Ascend
 		the gradient or jump to the optimum — when each is preferable, and the seam
 		between them.

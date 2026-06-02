@@ -44,6 +44,10 @@ function remarkBasePrefix() {
 export default defineConfig({
 	site: 'https://nenuadrian.github.io',
 	base: BASE,
+	redirects: {
+		// The EM page was merged into RL as Inference; keep old links working.
+		'/reinforcement-learning/expectation-maximization': '/reinforcement-learning/rl-as-inference',
+	},
 	markdown: {
 		remarkPlugins: [remarkGfm, remarkMath, remarkBasePrefix],
 		rehypePlugins: [rehypeKatex],
@@ -143,7 +147,6 @@ export default defineConfig({
 						{
 							label: 'Expectation Maximization',
 							items: [
-								{ label: 'EM: The Algorithm', slug: 'reinforcement-learning/expectation-maximization' },
 								{ label: 'RL as Inference', slug: 'reinforcement-learning/rl-as-inference' },
 								{ label: 'MPO', slug: 'reinforcement-learning/mpo' },
 								{ label: 'V-MPO', slug: 'reinforcement-learning/vmpo' },
