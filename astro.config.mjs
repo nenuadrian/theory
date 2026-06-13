@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 
 // The site is served from this sub-path (GitHub Pages project page).
-const BASE = '/theory/';
+const BASE = '/';
 
 /**
  * Astro does not prepend `base` to hardcoded root-absolute links authored in
